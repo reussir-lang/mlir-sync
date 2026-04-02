@@ -245,8 +245,12 @@ extern crate std;
 #[cfg(test)]
 mod tests {
     use super::Futex;
-    use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use core::sync::atomic::Ordering;
+    #[cfg(any(not(target_family = "wasm"), feature = "nightly"))]
+    use core::sync::atomic::{AtomicBool, AtomicUsize};
+    #[cfg(any(not(target_family = "wasm"), feature = "nightly"))]
     use std::sync::Barrier;
+    #[cfg(any(not(target_family = "wasm"), feature = "nightly"))]
     use std::thread;
 
     #[test]
@@ -264,18 +268,11 @@ mod tests {
     #[test]
     fn wait_returns_immediately_for_mismatched_value() {
         let futex = Futex::new(1);
-        let returned = AtomicBool::new(false);
-
-        thread::scope(|scope| {
-            scope.spawn(|| {
-                futex.wait(0);
-                returned.store(true, Ordering::Release);
-            });
-        });
-
-        assert!(returned.load(Ordering::Acquire));
+        futex.wait(0);
+        assert_eq!(futex.load(Ordering::Acquire), 1);
     }
 
+    #[cfg(any(not(target_family = "wasm"), feature = "nightly"))]
     #[test]
     fn wake_same_value_does_not_release_a_waiter() {
         let futex = Futex::new(0);
@@ -305,6 +302,7 @@ mod tests {
         assert_eq!(futex.load(Ordering::Acquire), 1);
     }
 
+    #[cfg(any(not(target_family = "wasm"), feature = "nightly"))]
     #[test]
     fn wake_releases_all_waiters() {
         let futex = Futex::new(0);

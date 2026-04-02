@@ -21,9 +21,9 @@ jobs:
       matrix:
         include:
           - toolchain: stable
-            command: wasm-pack test --node crates/portable_futex
+            command: cargo test --workspace --target wasm32-wasip1-threads
           - toolchain: nightly
-            command: wasm-pack test --node crates/portable_futex --features nightly
+            command: cargo test --workspace --target wasm32-wasip1-threads --features nightly
 
     steps:
       - name: Checkout repository
@@ -33,10 +33,16 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.toolchain }}
-          targets: wasm32-unknown-unknown
+          targets: wasm32-wasip1-threads
 
-      - name: Install wasm-pack
-        run: cargo install wasm-pack --locked
+      - name: Install Wasmer
+        run: curl https://get.wasmer.io -sSfL | sh
+
+      - name: Add Wasmer to PATH
+        run: echo "$HOME/.wasmer/bin" >> "$GITHUB_PATH"
+
+      - name: Register Wasmer binfmt
+        run: sudo "$HOME/.wasmer/bin/wasmer" binfmt register
 
       - name: Run wasm tests
         run: ${{ matrix.command }}
