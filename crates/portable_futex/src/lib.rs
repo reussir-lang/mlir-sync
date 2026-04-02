@@ -30,6 +30,12 @@ use core::arch::wasm64 as wasm;
 use core::ffi::{c_int, c_void};
 #[cfg(all(not(miri), target_os = "linux"))]
 use rustix::{io::Errno, thread::futex::Flags};
+#[cfg(miri)]
+use std::sync::Mutex;
+#[cfg(miri)]
+use std::thread::{self, Thread};
+#[cfg(miri)]
+use std::vec::Vec;
 #[cfg(all(not(miri), target_os = "windows"))]
 use winapi::{
     shared::basetsd::SIZE_T,
@@ -38,12 +44,6 @@ use winapi::{
         winbase::INFINITE,
     },
 };
-#[cfg(miri)]
-use std::sync::Mutex;
-#[cfg(miri)]
-use std::thread::{self, Thread};
-#[cfg(miri)]
-use std::vec::Vec;
 
 #[cfg(all(not(miri), target_os = "macos"))]
 const OS_SYNC_WAIT_ON_ADDRESS_NONE: u32 = 0;
