@@ -7,3 +7,7 @@ pub mod mutex;
 fn panic(_info: &core::panic::PanicInfo) -> ! {
     loop {}
 }
+
+#[cfg(all(target_os = "macos", not(any(test, miri))))]
+#[unsafe(no_mangle)]
+extern "C" fn rust_eh_personality() {}
