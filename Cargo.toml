@@ -4,3 +4,9 @@ members = [
     "crates/mlir_sync",
 ]
 resolver = "3"
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"

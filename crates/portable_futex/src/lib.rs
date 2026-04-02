@@ -4,6 +4,9 @@
     feature(stdarch_wasm_atomic_wait)
 )]
 
+#[cfg(any(test, miri))]
+extern crate std;
+
 use core::ops::Deref;
 use core::sync::atomic::{AtomicU32, Ordering};
 
@@ -31,10 +34,16 @@ use rustix::{io::Errno, thread::futex::Flags};
 use winapi::{
     shared::basetsd::SIZE_T,
     um::{
-        synchapi::{WaitOnAddress, WakeByAddressAll},
+        synchapi::{WaitOnAddress, WakeByAddressAll, WakeByAddressSingle},
         winbase::INFINITE,
     },
 };
+#[cfg(miri)]
+use std::sync::Mutex;
+#[cfg(miri)]
+use std::thread::{self, Thread};
+#[cfg(miri)]
+use std::vec::Vec;
 
 #[cfg(all(not(miri), target_os = "macos"))]
 const OS_SYNC_WAIT_ON_ADDRESS_NONE: u32 = 0;
@@ -50,6 +59,7 @@ const ENOMEM: i32 = 12;
 #[cfg(all(not(miri), target_os = "macos"))]
 unsafe extern "C" {
     fn os_sync_wait_on_address(addr: *mut c_void, value: u64, size: usize, flags: u32) -> c_int;
+    fn os_sync_wake_by_address_any(addr: *mut c_void, size: usize, flags: u32) -> c_int;
     fn os_sync_wake_by_address_all(addr: *mut c_void, size: usize, flags: u32) -> c_int;
     fn __error() -> *mut c_int;
 }
@@ -60,14 +70,19 @@ fn last_os_error() -> i32 {
     unsafe { *__error() }
 }
 
+#[cfg_attr(not(miri), repr(transparent))]
 pub struct Futex {
     word: AtomicU32,
+    #[cfg(miri)]
+    waiters: Mutex<Vec<Thread>>,
 }
 
 impl Futex {
-    pub fn new(init: u32) -> Self {
+    pub const fn new(init: u32) -> Self {
         Self {
             word: AtomicU32::new(init),
+            #[cfg(miri)]
+            waiters: Mutex::new(Vec::new()),
         }
     }
 
@@ -92,17 +107,35 @@ impl Futex {
             }
         }
 
-        #[cfg(any(
-            miri,
-            all(
-                not(any(target_os = "linux", target_os = "windows", target_os = "macos")),
-                not(all(
-                    feature = "nightly",
-                    target_family = "wasm",
-                    target_feature = "atomics",
-                    any(target_arch = "wasm32", target_arch = "wasm64")
-                ))
-            )
+        #[cfg(miri)]
+        loop {
+            if self.word.load(Ordering::Acquire) != expected {
+                return;
+            }
+
+            {
+                let mut waiters = self
+                    .waiters
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                if self.word.load(Ordering::Acquire) != expected {
+                    return;
+                }
+                waiters.push(thread::current());
+            }
+
+            thread::park();
+        }
+
+        #[cfg(all(
+            not(miri),
+            not(any(target_os = "linux", target_os = "windows", target_os = "macos")),
+            not(all(
+                feature = "nightly",
+                target_family = "wasm",
+                target_feature = "atomics",
+                any(target_arch = "wasm32", target_arch = "wasm64")
+            ))
         ))]
         {
             while self.word.load(Ordering::Acquire) == expected {
@@ -166,7 +199,7 @@ impl Futex {
         }
     }
 
-    pub fn wake(&self, message: u32) {
+    pub fn wake_one(&self) {
         #[cfg(all(
             feature = "nightly",
             not(miri),
@@ -174,53 +207,107 @@ impl Futex {
             target_feature = "atomics",
             any(target_arch = "wasm32", target_arch = "wasm64")
         ))]
-        {
-            self.word.store(message, Ordering::Release);
-            unsafe {
-                wasm::memory_atomic_notify(self.word.as_ptr().cast(), i32::MAX as u32);
-            }
+        unsafe {
+            wasm::memory_atomic_notify(self.word.as_ptr().cast(), 1);
         }
 
-        #[cfg(any(
-            miri,
-            all(
-                not(any(target_os = "linux", target_os = "windows", target_os = "macos")),
-                not(all(
-                    feature = "nightly",
-                    target_family = "wasm",
-                    target_feature = "atomics",
-                    any(target_arch = "wasm32", target_arch = "wasm64")
-                ))
-            )
-        ))]
+        #[cfg(miri)]
         {
-            self.word.store(message, Ordering::Release);
+            let mut guard = self
+                .waiters
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let Some(waiter) = guard.pop() else {
+                return;
+            };
+            waiter.unpark();
         }
+
+        #[cfg(all(
+            not(miri),
+            not(any(target_os = "linux", target_os = "windows", target_os = "macos")),
+            not(all(
+                feature = "nightly",
+                target_family = "wasm",
+                target_feature = "atomics",
+                any(target_arch = "wasm32", target_arch = "wasm64")
+            ))
+        ))]
+        {}
 
         #[cfg(all(not(miri), target_os = "linux"))]
         {
-            self.word.store(message, Ordering::Release);
+            let _ = rustix::thread::futex::wake(&self.word, Flags::PRIVATE, 1);
+        }
+
+        #[cfg(all(not(miri), target_os = "windows"))]
+        unsafe {
+            WakeByAddressSingle(self.word.as_ptr().cast());
+        }
+
+        #[cfg(all(not(miri), target_os = "macos"))]
+        unsafe {
+            let _ = os_sync_wake_by_address_any(
+                self.word.as_ptr().cast(),
+                core::mem::size_of::<u32>(),
+                OS_SYNC_WAKE_BY_ADDRESS_NONE,
+            );
+        }
+    }
+
+    pub fn wake_all(&self) {
+        #[cfg(all(
+            feature = "nightly",
+            not(miri),
+            target_family = "wasm",
+            target_feature = "atomics",
+            any(target_arch = "wasm32", target_arch = "wasm64")
+        ))]
+        unsafe {
+            wasm::memory_atomic_notify(self.word.as_ptr().cast(), i32::MAX as u32);
+        }
+
+        #[cfg(miri)]
+        {
+            let mut guard = self
+                .waiters
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+            for waiter in guard.drain(..) {
+                waiter.unpark();
+            }
+        }
+
+        #[cfg(all(
+            not(miri),
+            not(any(target_os = "linux", target_os = "windows", target_os = "macos")),
+            not(all(
+                feature = "nightly",
+                target_family = "wasm",
+                target_feature = "atomics",
+                any(target_arch = "wasm32", target_arch = "wasm64")
+            ))
+        ))]
+        {}
+
+        #[cfg(all(not(miri), target_os = "linux"))]
+        {
             let _ = rustix::thread::futex::wake(&self.word, Flags::PRIVATE, i32::MAX as u32);
         }
 
         #[cfg(all(not(miri), target_os = "windows"))]
-        {
-            self.word.store(message, Ordering::Release);
-            unsafe {
-                WakeByAddressAll(self.word.as_ptr().cast());
-            }
+        unsafe {
+            WakeByAddressAll(self.word.as_ptr().cast());
         }
 
         #[cfg(all(not(miri), target_os = "macos"))]
-        {
-            self.word.store(message, Ordering::Release);
-            unsafe {
-                let _ = os_sync_wake_by_address_all(
-                    self.word.as_ptr().cast(),
-                    core::mem::size_of::<u32>(),
-                    OS_SYNC_WAKE_BY_ADDRESS_NONE,
-                );
-            }
+        unsafe {
+            let _ = os_sync_wake_by_address_all(
+                self.word.as_ptr().cast(),
+                core::mem::size_of::<u32>(),
+                OS_SYNC_WAKE_BY_ADDRESS_NONE,
+            );
         }
     }
 }
@@ -238,9 +325,6 @@ impl Default for Futex {
         Self::new(0)
     }
 }
-
-#[cfg(test)]
-extern crate std;
 
 #[cfg(test)]
 mod tests {
@@ -274,7 +358,7 @@ mod tests {
 
     #[cfg(any(not(target_family = "wasm"), feature = "nightly"))]
     #[test]
-    fn wake_same_value_does_not_release_a_waiter() {
+    fn wake_one_with_same_value_does_not_release_a_waiter() {
         let futex = Futex::new(0);
         let ready = Barrier::new(2);
         let woke = AtomicBool::new(false);
@@ -289,12 +373,13 @@ mod tests {
 
             ready.wait();
             for _ in 0..1024 {
-                futex.wake(0);
+                futex.wake_one();
                 thread::yield_now();
             }
 
             woke_early = woke.load(Ordering::Acquire);
-            futex.wake(1);
+            futex.store(1, Ordering::Release);
+            futex.wake_one();
         });
 
         assert!(!woke_early);
@@ -304,7 +389,37 @@ mod tests {
 
     #[cfg(any(not(target_family = "wasm"), feature = "nightly"))]
     #[test]
-    fn wake_releases_all_waiters() {
+    fn wake_one_releases_a_waiter() {
+        let futex = Futex::new(0);
+        let ready = Barrier::new(2);
+        let woke = AtomicBool::new(false);
+
+        thread::scope(|scope| {
+            scope.spawn(|| {
+                ready.wait();
+                futex.wait(0);
+                woke.store(true, Ordering::Release);
+            });
+
+            ready.wait();
+            futex.store(1, Ordering::Release);
+            futex.wake_one();
+
+            for _ in 0..1024 {
+                if woke.load(Ordering::Acquire) {
+                    break;
+                }
+                thread::yield_now();
+            }
+        });
+
+        assert!(woke.load(Ordering::Acquire));
+        assert_eq!(futex.load(Ordering::Acquire), 1);
+    }
+
+    #[cfg(any(not(target_family = "wasm"), feature = "nightly"))]
+    #[test]
+    fn wake_all_releases_all_waiters() {
         let futex = Futex::new(0);
         let waiter_count = 3;
         let ready = Barrier::new(waiter_count + 1);
@@ -320,7 +435,8 @@ mod tests {
             }
 
             ready.wait();
-            futex.wake(1);
+            futex.store(1, Ordering::Release);
+            futex.wake_all();
         });
 
         assert_eq!(woke.load(Ordering::Acquire), waiter_count);

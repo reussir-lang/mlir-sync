@@ -21,9 +21,9 @@ jobs:
       matrix:
         include:
           - toolchain: stable
-            command: cargo test --workspace --target wasm32-wasip1-threads
+            command: cargo test --workspace --lib --target wasm32-wasip1-threads
           - toolchain: nightly
-            command: cargo test --workspace --target wasm32-wasip1-threads --features nightly
+            command: cargo test --workspace --lib --target wasm32-wasip1-threads --features nightly
 
     steps:
       - name: Checkout repository

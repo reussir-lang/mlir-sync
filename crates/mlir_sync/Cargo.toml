@@ -3,4 +3,11 @@ name = "mlir_sync"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+nightly = ["portable_futex/nightly"]
+
+[lib]
+crate-type = ["lib", "cdylib", "staticlib"]
+
 [dependencies]
+portable_futex = { path = "../portable_futex" }

@@ -64,13 +64,21 @@ jobs:
         if: matrix.profile == 'release'
         run: cargo clippy --workspace --all-targets --all-features --release -- -D warnings
 
-      - name: Run tests (debug)
+      - name: Build artifacts (debug)
         if: matrix.profile == 'debug'
-        run: cargo test --workspace
+        run: cargo build --workspace
 
-      - name: Run tests (release)
+      - name: Build artifacts (release)
         if: matrix.profile == 'release'
-        run: cargo test --workspace --release
+        run: cargo build --workspace --release
+
+      - name: Run library tests (debug)
+        if: matrix.profile == 'debug'
+        run: cargo test --workspace --lib
+
+      - name: Run library tests (release)
+        if: matrix.profile == 'release'
+        run: cargo test --workspace --lib --release
 
   miri:
     name: Miri
