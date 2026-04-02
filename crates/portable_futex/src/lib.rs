@@ -257,9 +257,8 @@ impl Futex {
 
         #[cfg(all(not(miri), target_os = "linux"))]
         {
-            let _ = unsafe {
-                rustix::thread::futex::wake(&(*this.as_ptr()).word, Flags::PRIVATE, 1)
-            };
+            let _ =
+                unsafe { rustix::thread::futex::wake(&(*this.as_ptr()).word, Flags::PRIVATE, 1) };
         }
 
         #[cfg(all(not(miri), target_os = "windows"))]
@@ -324,11 +323,7 @@ impl Futex {
         #[cfg(all(not(miri), target_os = "linux"))]
         {
             let _ = unsafe {
-                rustix::thread::futex::wake(
-                    &(*this.as_ptr()).word,
-                    Flags::PRIVATE,
-                    i32::MAX as u32,
-                )
+                rustix::thread::futex::wake(&(*this.as_ptr()).word, Flags::PRIVATE, i32::MAX as u32)
             };
         }
 
