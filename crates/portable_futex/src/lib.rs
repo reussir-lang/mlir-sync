@@ -86,6 +86,7 @@ impl Futex {
         }
     }
 
+    #[inline]
     pub fn wait(&self, expected: u32) {
         #[cfg(all(
             feature = "nightly",
@@ -199,6 +200,7 @@ impl Futex {
         }
     }
 
+    #[inline]
     pub fn wake_one(&self) {
         #[cfg(all(
             feature = "nightly",
@@ -255,6 +257,7 @@ impl Futex {
         }
     }
 
+    #[inline]
     pub fn wake_all(&self) {
         #[cfg(all(
             feature = "nightly",

@@ -40,7 +40,6 @@ impl Mutex {
         }
     }
 
-    #[cold]
     fn lock_contended(&self) {
         let mut state = self.spin();
 
@@ -88,12 +87,11 @@ impl Mutex {
     /// protocol and may cause undefined behavior in code that relies on it.
     pub unsafe fn unlock(&self) {
         if self.futex.swap(UNLOCKED, Release) == CONTENDED {
-            self.wake();
+            unsafe { self.wake() };
         }
     }
 
-    #[cold]
-    fn wake(&self) {
+    unsafe fn wake(&self) {
         self.futex.wake_one();
     }
 }
@@ -105,6 +103,7 @@ impl Default for Mutex {
 }
 
 #[unsafe(no_mangle)]
+#[cold]
 /// Continues a contended lock operation from the C ABI surface.
 ///
 /// # Safety
@@ -117,6 +116,7 @@ pub unsafe extern "C" fn mlir_sync_mutex_lock_slow_path(mutex: *mut Mutex) {
 }
 
 #[unsafe(no_mangle)]
+#[cold]
 /// Wakes a waiter for a contended mutex from the C ABI surface.
 ///
 /// # Safety
