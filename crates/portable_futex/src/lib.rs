@@ -30,7 +30,9 @@ use core::arch::wasm64 as wasm;
 #[cfg(all(not(miri), target_os = "macos"))]
 use core::ffi::{c_int, c_void};
 #[cfg(all(not(miri), target_os = "linux"))]
-use rustix::{io::Errno, thread::futex::Flags};
+use linux_raw_sys::general::{FUTEX_PRIVATE_FLAG, FUTEX_WAIT, FUTEX_WAKE};
+#[cfg(all(not(miri), target_os = "linux"))]
+use syscalls::{Errno, Sysno};
 #[cfg(miri)]
 use std::sync::Mutex;
 #[cfg(miri)]
@@ -69,6 +71,39 @@ unsafe extern "C" {
 #[inline]
 fn last_os_error() -> i32 {
     unsafe { *__error() }
+}
+
+#[cfg(all(not(miri), target_os = "linux"))]
+#[inline]
+unsafe fn linux_futex_wait(uaddr: *const AtomicU32, expected: u32) -> Result<(), Errno> {
+    unsafe {
+        syscalls::syscall!(
+            Sysno::futex,
+            uaddr,
+            FUTEX_WAIT | FUTEX_PRIVATE_FLAG,
+            expected,
+            core::ptr::null::<u8>(),
+            core::ptr::null::<u8>(),
+            0u32
+        )
+    }
+    .map(|_| ())
+}
+
+#[cfg(all(not(miri), target_os = "linux"))]
+#[inline]
+unsafe fn linux_futex_wake(uaddr: *const AtomicU32, wake_count: u32) -> Result<usize, Errno> {
+    unsafe {
+        syscalls::syscall!(
+            Sysno::futex,
+            uaddr,
+            FUTEX_WAKE | FUTEX_PRIVATE_FLAG,
+            wake_count,
+            core::ptr::null::<u8>(),
+            core::ptr::null::<u8>(),
+            0u32
+        )
+    }
 }
 
 #[cfg_attr(not(miri), repr(transparent))]
@@ -158,10 +193,8 @@ impl Futex {
             if unsafe { (*this.as_ptr()).word.load(Ordering::Acquire) } != expected {
                 return;
             }
-            match unsafe {
-                rustix::thread::futex::wait(&(*this.as_ptr()).word, Flags::PRIVATE, expected, None)
-            } {
-                Ok(()) | Err(Errno::INTR) | Err(Errno::AGAIN) => continue,
+            match unsafe { linux_futex_wait(core::ptr::addr_of!((*this.as_ptr()).word), expected) } {
+                Ok(()) | Err(Errno::EINTR) | Err(Errno::EAGAIN) => continue,
                 Err(_) => return,
             }
         }
@@ -257,8 +290,7 @@ impl Futex {
 
         #[cfg(all(not(miri), target_os = "linux"))]
         {
-            let _ =
-                unsafe { rustix::thread::futex::wake(&(*this.as_ptr()).word, Flags::PRIVATE, 1) };
+            let _ = unsafe { linux_futex_wake(core::ptr::addr_of!((*this.as_ptr()).word), 1) };
         }
 
         #[cfg(all(not(miri), target_os = "windows"))]
@@ -323,7 +355,7 @@ impl Futex {
         #[cfg(all(not(miri), target_os = "linux"))]
         {
             let _ = unsafe {
-                rustix::thread::futex::wake(&(*this.as_ptr()).word, Flags::PRIVATE, i32::MAX as u32)
+                linux_futex_wake(core::ptr::addr_of!((*this.as_ptr()).word), i32::MAX as u32)
             };
         }
 
