@@ -16,5 +16,5 @@
 
 Licensed under either of the following, at your option:
 
-- Apache License, Version 2.0
+- Apache License, Version 2.0 with LLVM Exceptions
 - MIT license
