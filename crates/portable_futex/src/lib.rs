@@ -215,12 +215,15 @@ impl Futex {
 
         #[cfg(miri)]
         {
-            let mut guard = self
-                .waiters
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            let Some(waiter) = guard.pop() else {
-                return;
+            let waiter = {
+                let mut guard = self
+                    .waiters
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                let Some(waiter) = guard.pop() else {
+                    return;
+                };
+                waiter
             };
             waiter.unpark();
         }
@@ -272,12 +275,15 @@ impl Futex {
 
         #[cfg(miri)]
         {
-            let mut guard = self
-                .waiters
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let waiters = {
+                let mut guard = self
+                    .waiters
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                guard.drain(..).collect::<Vec<_>>()
+            };
 
-            for waiter in guard.drain(..) {
+            for waiter in waiters {
                 waiter.unpark();
             }
         }
