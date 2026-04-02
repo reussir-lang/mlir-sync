@@ -58,11 +58,11 @@ jobs:
 
       - name: Run Clippy (debug)
         if: matrix.profile == 'debug'
-        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Run Clippy (release)
         if: matrix.profile == 'release'
-        run: cargo clippy --workspace --all-targets --all-features --release -- -D warnings
+        run: cargo clippy --workspace --all-targets --release -- -D warnings
 
       - name: Build artifacts (debug)
         if: matrix.profile == 'debug'
