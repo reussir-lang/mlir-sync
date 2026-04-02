@@ -8,6 +8,7 @@
 extern crate std;
 
 use core::ops::Deref;
+use core::ptr::NonNull;
 use core::sync::atomic::{AtomicU32, Ordering};
 
 #[cfg(all(
@@ -87,7 +88,12 @@ impl Futex {
     }
 
     #[inline]
-    pub fn wait(&self, expected: u32) {
+    /// Waits while the futex word is equal to `expected`.
+    ///
+    /// # Safety
+    ///
+    /// `this` must point to a valid [`Futex`].
+    pub unsafe fn wait(this: NonNull<Self>, expected: u32) {
         #[cfg(all(
             feature = "nightly",
             not(miri),
@@ -96,12 +102,16 @@ impl Futex {
             any(target_arch = "wasm32", target_arch = "wasm64")
         ))]
         loop {
-            if self.word.load(Ordering::Acquire) != expected {
+            if unsafe { (*this.as_ptr()).word.load(Ordering::Acquire) } != expected {
                 return;
             }
 
             match unsafe {
-                wasm::memory_atomic_wait32(self.word.as_ptr().cast(), expected as i32, -1)
+                wasm::memory_atomic_wait32(
+                    (*this.as_ptr()).word.as_ptr().cast(),
+                    expected as i32,
+                    -1,
+                )
             } {
                 0 | 1 | 2 => continue,
                 _ => return,
@@ -110,16 +120,15 @@ impl Futex {
 
         #[cfg(miri)]
         loop {
-            if self.word.load(Ordering::Acquire) != expected {
+            if unsafe { (*this.as_ptr()).word.load(Ordering::Acquire) } != expected {
                 return;
             }
 
             {
-                let mut waiters = self
-                    .waiters
+                let mut waiters = unsafe { &(*this.as_ptr()).waiters }
                     .lock()
                     .unwrap_or_else(|poisoned| poisoned.into_inner());
-                if self.word.load(Ordering::Acquire) != expected {
+                if unsafe { (*this.as_ptr()).word.load(Ordering::Acquire) } != expected {
                     return;
                 }
                 waiters.push(thread::current());
@@ -139,17 +148,19 @@ impl Futex {
             ))
         ))]
         {
-            while self.word.load(Ordering::Acquire) == expected {
+            while unsafe { (*this.as_ptr()).word.load(Ordering::Acquire) } == expected {
                 core::hint::spin_loop();
             }
         }
 
         #[cfg(all(not(miri), target_os = "linux"))]
         loop {
-            if self.word.load(Ordering::Acquire) != expected {
+            if unsafe { (*this.as_ptr()).word.load(Ordering::Acquire) } != expected {
                 return;
             }
-            match rustix::thread::futex::wait(&self.word, Flags::PRIVATE, expected, None) {
+            match unsafe {
+                rustix::thread::futex::wait(&(*this.as_ptr()).word, Flags::PRIVATE, expected, None)
+            } {
                 Ok(()) | Err(Errno::INTR) | Err(Errno::AGAIN) => continue,
                 Err(_) => return,
             }
@@ -157,13 +168,13 @@ impl Futex {
 
         #[cfg(all(not(miri), target_os = "windows"))]
         loop {
-            if self.word.load(Ordering::Acquire) != expected {
+            if unsafe { (*this.as_ptr()).word.load(Ordering::Acquire) } != expected {
                 return;
             }
 
             let wait_succeeded = unsafe {
                 WaitOnAddress(
-                    self.word.as_ptr().cast(),
+                    (*this.as_ptr()).word.as_ptr().cast(),
                     core::ptr::from_ref(&expected).cast_mut().cast(),
                     core::mem::size_of::<u32>() as SIZE_T,
                     INFINITE,
@@ -177,13 +188,13 @@ impl Futex {
 
         #[cfg(all(not(miri), target_os = "macos"))]
         loop {
-            if self.word.load(Ordering::Acquire) != expected {
+            if unsafe { (*this.as_ptr()).word.load(Ordering::Acquire) } != expected {
                 return;
             }
 
             let ret = unsafe {
                 os_sync_wait_on_address(
-                    self.word.as_ptr().cast(),
+                    (*this.as_ptr()).word.as_ptr().cast(),
                     expected as u64,
                     core::mem::size_of::<u32>(),
                     OS_SYNC_WAIT_ON_ADDRESS_NONE,
@@ -201,7 +212,12 @@ impl Futex {
     }
 
     #[inline]
-    pub fn wake_one(&self) {
+    /// Wakes at most one waiter blocked on this futex.
+    ///
+    /// # Safety
+    ///
+    /// `this` must point to a valid [`Futex`].
+    pub unsafe fn wake_one(this: NonNull<Self>) {
         #[cfg(all(
             feature = "nightly",
             not(miri),
@@ -210,14 +226,13 @@ impl Futex {
             any(target_arch = "wasm32", target_arch = "wasm64")
         ))]
         unsafe {
-            wasm::memory_atomic_notify(self.word.as_ptr().cast(), 1);
+            wasm::memory_atomic_notify((*this.as_ptr()).word.as_ptr().cast(), 1);
         }
 
         #[cfg(miri)]
         {
             let waiter = {
-                let mut guard = self
-                    .waiters
+                let mut guard = unsafe { &(*this.as_ptr()).waiters }
                     .lock()
                     .unwrap_or_else(|poisoned| poisoned.into_inner());
                 let Some(waiter) = guard.pop() else {
@@ -242,18 +257,20 @@ impl Futex {
 
         #[cfg(all(not(miri), target_os = "linux"))]
         {
-            let _ = rustix::thread::futex::wake(&self.word, Flags::PRIVATE, 1);
+            let _ = unsafe {
+                rustix::thread::futex::wake(&(*this.as_ptr()).word, Flags::PRIVATE, 1)
+            };
         }
 
         #[cfg(all(not(miri), target_os = "windows"))]
         unsafe {
-            WakeByAddressSingle(self.word.as_ptr().cast());
+            WakeByAddressSingle((*this.as_ptr()).word.as_ptr().cast());
         }
 
         #[cfg(all(not(miri), target_os = "macos"))]
         unsafe {
             let _ = os_sync_wake_by_address_any(
-                self.word.as_ptr().cast(),
+                (*this.as_ptr()).word.as_ptr().cast(),
                 core::mem::size_of::<u32>(),
                 OS_SYNC_WAKE_BY_ADDRESS_NONE,
             );
@@ -261,7 +278,12 @@ impl Futex {
     }
 
     #[inline]
-    pub fn wake_all(&self) {
+    /// Wakes all waiters blocked on this futex.
+    ///
+    /// # Safety
+    ///
+    /// `this` must point to a valid [`Futex`].
+    pub unsafe fn wake_all(this: NonNull<Self>) {
         #[cfg(all(
             feature = "nightly",
             not(miri),
@@ -270,14 +292,13 @@ impl Futex {
             any(target_arch = "wasm32", target_arch = "wasm64")
         ))]
         unsafe {
-            wasm::memory_atomic_notify(self.word.as_ptr().cast(), i32::MAX as u32);
+            wasm::memory_atomic_notify((*this.as_ptr()).word.as_ptr().cast(), i32::MAX as u32);
         }
 
         #[cfg(miri)]
         {
             let waiters = {
-                let mut guard = self
-                    .waiters
+                let mut guard = unsafe { &(*this.as_ptr()).waiters }
                     .lock()
                     .unwrap_or_else(|poisoned| poisoned.into_inner());
                 guard.drain(..).collect::<Vec<_>>()
@@ -302,18 +323,24 @@ impl Futex {
 
         #[cfg(all(not(miri), target_os = "linux"))]
         {
-            let _ = rustix::thread::futex::wake(&self.word, Flags::PRIVATE, i32::MAX as u32);
+            let _ = unsafe {
+                rustix::thread::futex::wake(
+                    &(*this.as_ptr()).word,
+                    Flags::PRIVATE,
+                    i32::MAX as u32,
+                )
+            };
         }
 
         #[cfg(all(not(miri), target_os = "windows"))]
         unsafe {
-            WakeByAddressAll(self.word.as_ptr().cast());
+            WakeByAddressAll((*this.as_ptr()).word.as_ptr().cast());
         }
 
         #[cfg(all(not(miri), target_os = "macos"))]
         unsafe {
             let _ = os_sync_wake_by_address_all(
-                self.word.as_ptr().cast(),
+                (*this.as_ptr()).word.as_ptr().cast(),
                 core::mem::size_of::<u32>(),
                 OS_SYNC_WAKE_BY_ADDRESS_NONE,
             );
@@ -338,6 +365,7 @@ impl Default for Futex {
 #[cfg(test)]
 mod tests {
     use super::Futex;
+    use core::ptr::NonNull;
     use core::sync::atomic::Ordering;
     #[cfg(any(not(target_family = "wasm"), feature = "nightly"))]
     use core::sync::atomic::{AtomicBool, AtomicUsize};
@@ -361,7 +389,7 @@ mod tests {
     #[test]
     fn wait_returns_immediately_for_mismatched_value() {
         let futex = Futex::new(1);
-        futex.wait(0);
+        unsafe { Futex::wait(NonNull::from(&futex), 0) };
         assert_eq!(futex.load(Ordering::Acquire), 1);
     }
 
@@ -376,19 +404,19 @@ mod tests {
         thread::scope(|scope| {
             scope.spawn(|| {
                 ready.wait();
-                futex.wait(0);
+                unsafe { Futex::wait(NonNull::from(&futex), 0) };
                 woke.store(true, Ordering::Release);
             });
 
             ready.wait();
             for _ in 0..1024 {
-                futex.wake_one();
+                unsafe { Futex::wake_one(NonNull::from(&futex)) };
                 thread::yield_now();
             }
 
             woke_early = woke.load(Ordering::Acquire);
             futex.store(1, Ordering::Release);
-            futex.wake_one();
+            unsafe { Futex::wake_one(NonNull::from(&futex)) };
         });
 
         assert!(!woke_early);
@@ -406,13 +434,13 @@ mod tests {
         thread::scope(|scope| {
             scope.spawn(|| {
                 ready.wait();
-                futex.wait(0);
+                unsafe { Futex::wait(NonNull::from(&futex), 0) };
                 woke.store(true, Ordering::Release);
             });
 
             ready.wait();
             futex.store(1, Ordering::Release);
-            futex.wake_one();
+            unsafe { Futex::wake_one(NonNull::from(&futex)) };
 
             for _ in 0..1024 {
                 if woke.load(Ordering::Acquire) {
@@ -438,14 +466,14 @@ mod tests {
             for _ in 0..waiter_count {
                 scope.spawn(|| {
                     ready.wait();
-                    futex.wait(0);
+                    unsafe { Futex::wait(NonNull::from(&futex), 0) };
                     woke.fetch_add(1, Ordering::AcqRel);
                 });
             }
 
             ready.wait();
             futex.store(1, Ordering::Release);
-            futex.wake_all();
+            unsafe { Futex::wake_all(NonNull::from(&futex)) };
         });
 
         assert_eq!(woke.load(Ordering::Acquire), waiter_count);

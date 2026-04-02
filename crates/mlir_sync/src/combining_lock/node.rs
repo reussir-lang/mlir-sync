@@ -19,6 +19,11 @@ pub struct Node {
 }
 
 impl Node {
+    #[inline]
+    fn futex_ptr(this: NonNull<Self>) -> NonNull<futex::Futex> {
+        unsafe { NonNull::new_unchecked(core::ptr::addr_of_mut!((*this.as_ptr()).futex)) }
+    }
+
     /// Creates a new `Node` with an initial state of `WAITING`.
     /// The `next` pointer is initialized to `null`.
     pub const fn new(closure: unsafe extern "C" fn(*mut Node)) -> Self {
@@ -30,14 +35,18 @@ impl Node {
     }
 
     /// Go to sleep until the futex is woken up with a message.
-    pub fn wait(&self) -> u32 {
-        match self
-            .futex
-            .compare_exchange(WAITING, SLEEPING, Ordering::AcqRel, Ordering::Acquire)
-        {
+    pub fn wait(this: NonNull<Self>) -> u32 {
+        match unsafe {
+            this.as_ref().futex.compare_exchange(
+                WAITING,
+                SLEEPING,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+        } {
             Ok(_) => {
-                self.futex.wait(SLEEPING);
-                self.futex.load(Ordering::Acquire)
+                unsafe { futex::Futex::wait(Self::futex_ptr(this), SLEEPING) };
+                unsafe { this.as_ref().futex.load(Ordering::Acquire) }
             }
             Err(value) => value,
         }
@@ -46,7 +55,7 @@ impl Node {
     /// Wakes up the futex with a message.
     fn wake(this: NonNull<Self>, message: u32) {
         if unsafe { this.as_ref().futex.swap(message, Ordering::AcqRel) } == SLEEPING {
-            unsafe { this.as_ref().futex.wake_one() };
+            unsafe { futex::Futex::wake_one(Self::futex_ptr(this)) };
         }
     }
 
@@ -93,7 +102,7 @@ impl Node {
                             break 'waiting;
                         }
                     }
-                    status = this.as_ref().wait();
+                    status = Node::wait(this);
                 }
                 if status == DONE {
                     return;
@@ -171,7 +180,7 @@ mod tests {
             {
                 let node = &node;
                 s.spawn(move || {
-                    let result = node.wait();
+                    let result = Node::wait(NonNull::from(node));
                     assert_eq!(result, HEAD);
                 });
             }
@@ -188,7 +197,7 @@ mod tests {
                 s.spawn(move || {
                     let local_node = Node::new(noop);
                     node.store_next(NonNull::from(&local_node));
-                    assert_eq!(local_node.wait(), DONE);
+                    assert_eq!(Node::wait(NonNull::from(&local_node)), DONE);
                 });
             }
             loop {

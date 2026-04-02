@@ -1,4 +1,5 @@
 use core::hint::spin_loop;
+use core::ptr::NonNull;
 use core::sync::atomic::Ordering::{Acquire, Relaxed, Release};
 
 use portable_futex::Futex;
@@ -15,6 +16,15 @@ pub struct Mutex {
 }
 
 impl Mutex {
+    #[inline]
+    fn futex_ptr(&self) -> NonNull<Futex> {
+        unsafe {
+            NonNull::new_unchecked(core::ptr::addr_of_mut!(
+                (*(core::ptr::from_ref(self).cast_mut())).futex
+            ))
+        }
+    }
+
     #[inline]
     pub const fn new() -> Self {
         Self {
@@ -58,7 +68,7 @@ impl Mutex {
                 return;
             }
 
-            self.futex.wait(CONTENDED);
+            unsafe { Futex::wait(self.futex_ptr(), CONTENDED) };
             state = self.spin();
         }
     }
@@ -92,7 +102,7 @@ impl Mutex {
     }
 
     unsafe fn wake(&self) {
-        self.futex.wake_one();
+        unsafe { Futex::wake_one(self.futex_ptr()) };
     }
 }
 
