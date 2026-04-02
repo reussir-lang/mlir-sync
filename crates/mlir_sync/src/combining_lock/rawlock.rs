@@ -39,9 +39,9 @@ impl RawLock {
             .is_ok()
     }
     pub fn try_acquire(&self) -> bool {
-        self
-            .status
-            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed).is_ok()
+        self.status
+            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .is_ok()
     }
     pub fn acquire(&self) {
         loop {
