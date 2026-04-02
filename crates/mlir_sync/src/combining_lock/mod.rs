@@ -71,13 +71,6 @@ impl<T> Lock<T> {
     /// 1. If the lock is not poisoned and can be acquired immediately, it runs the closure directly.
     ///    On the fast path, the closure is not spilled into the node.
     /// 2. If the lock is poisoned or cannot be acquired immediately, it schedules the closure to run later.
-    /// ```rust
-    /// use lamlock::Lock;
-    /// let lock = Lock::new(0);
-    /// lock.run(|data| {
-    ///   *data += 1;
-    /// }).unwrap();
-    /// ```
     #[inline(always)]
     pub fn run<F, R>(&self, f: F) -> R
     where
