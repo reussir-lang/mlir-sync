@@ -156,7 +156,7 @@ impl Node {
 
 #[unsafe(no_mangle)]
 #[cold]
-unsafe extern "C" fn mlir_sync_combining_lock_slow_attach(
+unsafe extern "C" fn mlir_sync_combining_lock_attach_slow_path(
     node: *mut Node,
     raw: *mut RawLock,
     combine_limit: usize,
