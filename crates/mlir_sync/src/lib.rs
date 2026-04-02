@@ -2,7 +2,7 @@
 pub mod combining_lock;
 pub mod mutex;
 
-#[cfg(not(test))]
+#[cfg(not(any(test, miri)))]
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {
     loop {}
