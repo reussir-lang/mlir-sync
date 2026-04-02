@@ -11,3 +11,10 @@
 2. **Portable futex-based synchronization for multiple platforms**
 
    Provide a futex-style synchronization layer that can be adapted to different operating systems while preserving a consistent interface and efficient blocking behavior.
+
+## License
+
+Licensed under either of the following, at your option:
+
+- Apache License, Version 2.0
+- MIT license
