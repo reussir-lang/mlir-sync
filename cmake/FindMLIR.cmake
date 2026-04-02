@@ -1,0 +1,11 @@
+find_package(MLIR REQUIRED CONFIG)
+
+message(STATUS "Found MLIR ${MLIR_PACKAGE_VERSION}")
+message(STATUS "Using MLIRConfig.cmake in: ${MLIR_DIR}")
+
+include(${MLIR_DIR}/AddMLIR.cmake)
+
+if(DEFINED ENV{MLIR_TABLEGEN_EXE_OVERRIDE})
+  set(MLIR_TABLEGEN_EXE $ENV{MLIR_TABLEGEN_EXE_OVERRIDE})
+  message(STATUS "Using MLIR_TABLEGEN_EXE override: ${MLIR_TABLEGEN_EXE}")
+endif()

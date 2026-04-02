@@ -1,1 +1,13 @@
 /target
+/build
+/build-*/
+/cmake-build-*/
+/compile_commands.json
+/.cache
+/.idea
+/.vscode
+.direnv
+.envrc
+.clice
+_codeql_detected_source_root
+__pycache__/
