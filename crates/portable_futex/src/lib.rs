@@ -31,14 +31,14 @@ use core::arch::wasm64 as wasm;
 use core::ffi::{c_int, c_void};
 #[cfg(all(not(miri), target_os = "linux"))]
 use linux_raw_sys::general::{FUTEX_PRIVATE_FLAG, FUTEX_WAIT, FUTEX_WAKE};
-#[cfg(all(not(miri), target_os = "linux"))]
-use syscalls::{Errno, Sysno};
 #[cfg(miri)]
 use std::sync::Mutex;
 #[cfg(miri)]
 use std::thread::{self, Thread};
 #[cfg(miri)]
 use std::vec::Vec;
+#[cfg(all(not(miri), target_os = "linux"))]
+use syscalls::{Errno, Sysno};
 #[cfg(all(not(miri), target_os = "windows"))]
 use winapi::{
     shared::basetsd::SIZE_T,
@@ -193,7 +193,8 @@ impl Futex {
             if unsafe { (*this.as_ptr()).word.load(Ordering::Acquire) } != expected {
                 return;
             }
-            match unsafe { linux_futex_wait(core::ptr::addr_of!((*this.as_ptr()).word), expected) } {
+            match unsafe { linux_futex_wait(core::ptr::addr_of!((*this.as_ptr()).word), expected) }
+            {
                 Ok(()) | Err(Errno::EINTR) | Err(Errno::EAGAIN) => continue,
                 Err(_) => return,
             }
