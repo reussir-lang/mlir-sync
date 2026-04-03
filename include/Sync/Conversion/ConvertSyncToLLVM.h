@@ -3,6 +3,7 @@
 #ifndef SYNC_CONVERSION_CONVERTSYNCTOLLVM_H
 #define SYNC_CONVERSION_CONVERTSYNCTOLLVM_H
 
+#include <mlir/IR/DialectRegistry.h>
 #include <mlir/Pass/Pass.h>
 #include <mlir/Transforms/DialectConversion.h>
 
@@ -14,8 +15,13 @@ namespace mlir::sync {
 #define GEN_PASS_DECL_CONVERTSYNCTOLLVMPASS
 #include "Sync/Conversion/Passes.h.inc"
 
+void configureConvertSyncToLLVMConversionLegality(
+    mlir::ConversionTarget &target);
+
 void populateConvertSyncToLLVMConversionPatterns(
-    LLVMTypeConverter &converter, mlir::RewritePatternSet &patterns);
+    mlir::LLVMTypeConverter &converter, mlir::RewritePatternSet &patterns);
+
+void registerConvertSyncToLLVMInterface(mlir::DialectRegistry &registry);
 
 } // namespace mlir::sync
 

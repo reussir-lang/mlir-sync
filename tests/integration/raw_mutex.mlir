@@ -1,6 +1,6 @@
 // RUN: %sync-opt %s | %FileCheck %s --check-prefix=ROUNDTRIP
 // RUN: %sync-opt %s --convert-sync-to-std | %FileCheck %s --check-prefix=STD
-// RUN: %sync-opt %s --convert-sync-to-std --convert-scf-to-cf --convert-sync-to-llvm --convert-cf-to-llvm | %FileCheck %s --check-prefix=LOWER
+// RUN: %sync-opt %s --convert-sync-to-std --convert-scf-to-cf --convert-to-llvm | %FileCheck %s --check-prefix=LOWER
 
 module {
   func.func @try_lock_once() -> i1 {

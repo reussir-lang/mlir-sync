@@ -10,6 +10,8 @@
 
 namespace mlir::sync {
 
+void populateSyncToLLVMTypeConversions(mlir::LLVMTypeConverter &converter);
+
 class LLVMTypeConverter : public mlir::LLVMTypeConverter {
 public:
   explicit LLVMTypeConverter(mlir::ModuleOp moduleOp);

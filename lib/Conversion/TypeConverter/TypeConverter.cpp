@@ -23,11 +23,15 @@ mlir::LowerToLLVMOptions getLowerOptions(mlir::ModuleOp moduleOp) {
 
 } // namespace
 
-LLVMTypeConverter::LLVMTypeConverter(mlir::ModuleOp moduleOp)
-    : mlir::LLVMTypeConverter(moduleOp.getContext(), getLowerOptions(moduleOp)) {
-  addConversion([](RawMutexType type) -> mlir::Type {
+void populateSyncToLLVMTypeConversions(mlir::LLVMTypeConverter &converter) {
+  converter.addConversion([](RawMutexType type) -> mlir::Type {
     return mlir::IntegerType::get(type.getContext(), 32);
   });
+}
+
+LLVMTypeConverter::LLVMTypeConverter(mlir::ModuleOp moduleOp)
+    : mlir::LLVMTypeConverter(moduleOp.getContext(), getLowerOptions(moduleOp)) {
+  populateSyncToLLVMTypeConversions(*this);
 }
 
 } // namespace mlir::sync

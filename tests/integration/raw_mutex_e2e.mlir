@@ -1,4 +1,4 @@
-// RUN: %sync-opt %s --convert-sync-to-std --convert-scf-to-cf --convert-sync-to-llvm --convert-cf-to-llvm > %t
+// RUN: %sync-opt %s --convert-sync-to-std --convert-scf-to-cf --convert-to-llvm > %t
 // RUN: %mlir-translate --mlir-to-llvmir %t | %clang -Wno-override-module -O0 -c -x ir -o %t.o -
 // RUN: %clang -std=c11 -O0 %S/raw_mutex_e2e_main.c %t.o %sync-runtime-lib -o %t.exe
 // RUN: %t.exe

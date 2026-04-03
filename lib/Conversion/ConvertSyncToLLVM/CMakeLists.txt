@@ -10,6 +10,7 @@ add_mlir_conversion_library(MLIRSyncConvertSyncToLLVM
   LINK_LIBS PUBLIC
     MLIRSync
     MLIRSyncTypeConverter
+    MLIRConvertToLLVMInterface
     MLIRFuncToLLVM
     MLIRMemRefToLLVM
     MLIRLLVMCommonConversion

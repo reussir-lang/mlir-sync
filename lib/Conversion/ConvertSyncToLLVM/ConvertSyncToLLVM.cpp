@@ -1,5 +1,6 @@
 #include "Sync/Conversion/ConvertSyncToLLVM.h"
 
+#include <mlir/Conversion/ConvertToLLVM/ToLLVMInterface.h>
 #include <mlir/Conversion/FuncToLLVM/ConvertFuncToLLVM.h>
 #include <mlir/Conversion/LLVMCommon/Pattern.h>
 #include <mlir/Conversion/MemRefToLLVM/MemRefToLLVM.h>
@@ -36,7 +37,7 @@ mlir::Value createI32Constant(mlir::Location loc, uint64_t value,
 
 template <typename OpTy>
 mlir::Value getRawMutexPointer(OpTy op, typename OpTy::Adaptor adaptor,
-                               const LLVMTypeConverter &converter,
+                               const mlir::LLVMTypeConverter &converter,
                                mlir::ConversionPatternRewriter &rewriter) {
   auto memrefType = llvm::cast<mlir::MemRefType>(op.getMutex().getType());
   return mlir::LLVM::getStridedElementPtr(rewriter, op.getLoc(), converter,
@@ -50,7 +51,8 @@ struct RawMutexInitLowering
   mlir::LogicalResult
   matchAndRewrite(SyncRawMutexInitOp op, OpAdaptor adaptor,
                   mlir::ConversionPatternRewriter &rewriter) const override {
-    auto &converter = *static_cast<const LLVMTypeConverter *>(getTypeConverter());
+    auto &converter =
+        *static_cast<const mlir::LLVMTypeConverter *>(getTypeConverter());
     auto ptr = getRawMutexPointer(op, adaptor, converter, rewriter);
     auto zero = createI32Constant(op.getLoc(), kUnlockedState, rewriter);
     mlir::LLVM::StoreOp::create(rewriter, op.getLoc(), zero, ptr);
@@ -66,7 +68,8 @@ struct RawMutexTryLockLowering
   mlir::LogicalResult
   matchAndRewrite(SyncRawMutexTryLockOp op, OpAdaptor adaptor,
                   mlir::ConversionPatternRewriter &rewriter) const override {
-    auto &converter = *static_cast<const LLVMTypeConverter *>(getTypeConverter());
+    auto &converter =
+        *static_cast<const mlir::LLVMTypeConverter *>(getTypeConverter());
     auto ptr = getRawMutexPointer(op, adaptor, converter, rewriter);
     auto zero = createI32Constant(op.getLoc(), kUnlockedState, rewriter);
     auto one = createI32Constant(op.getLoc(), kLockedState, rewriter);
@@ -89,7 +92,8 @@ struct RawMutexUnlockFastLowering
   mlir::LogicalResult
   matchAndRewrite(SyncRawMutexUnlockFastOp op, OpAdaptor adaptor,
                   mlir::ConversionPatternRewriter &rewriter) const override {
-    auto &converter = *static_cast<const LLVMTypeConverter *>(getTypeConverter());
+    auto &converter =
+        *static_cast<const mlir::LLVMTypeConverter *>(getTypeConverter());
     auto loc = op.getLoc();
     auto ptr = getRawMutexPointer(op, adaptor, converter, rewriter);
     auto zero = createI32Constant(loc, kUnlockedState, rewriter);
@@ -107,14 +111,32 @@ struct RawMutexUnlockFastLowering
 
 } // namespace
 
+void configureConvertSyncToLLVMConversionLegality(
+    mlir::ConversionTarget &target) {
+  target.addIllegalDialect<SyncDialect>();
+}
+
 void populateConvertSyncToLLVMConversionPatterns(
-    LLVMTypeConverter &converter, mlir::RewritePatternSet &patterns) {
+    mlir::LLVMTypeConverter &converter, mlir::RewritePatternSet &patterns) {
   patterns.add<RawMutexInitLowering, RawMutexTryLockLowering,
                RawMutexUnlockFastLowering>(
       converter, patterns.getContext());
 }
 
 namespace {
+
+struct SyncConvertToLLVMPatternInterface
+    : public mlir::ConvertToLLVMPatternInterface {
+  using ConvertToLLVMPatternInterface::ConvertToLLVMPatternInterface;
+
+  void populateConvertToLLVMConversionPatterns(
+      mlir::ConversionTarget &target, mlir::LLVMTypeConverter &typeConverter,
+      mlir::RewritePatternSet &patterns) const override {
+    populateSyncToLLVMTypeConversions(typeConverter);
+    configureConvertSyncToLLVMConversionLegality(target);
+    populateConvertSyncToLLVMConversionPatterns(typeConverter, patterns);
+  }
+};
 
 struct ConvertSyncToLLVMPass
     : public impl::ConvertSyncToLLVMPassBase<ConvertSyncToLLVMPass> {
@@ -125,20 +147,11 @@ struct ConvertSyncToLLVMPass
 
     LLVMTypeConverter converter(moduleOp);
     mlir::RewritePatternSet patterns(&getContext());
-    mlir::SymbolTableCollection symbolTables;
     populateConvertSyncToLLVMConversionPatterns(converter, patterns);
-    mlir::ptr::populatePtrToLLVMConversionPatterns(converter, patterns);
-    mlir::populateFuncToLLVMConversionPatterns(converter, patterns,
-                                               &symbolTables);
-    mlir::populateFinalizeMemRefToLLVMConversionPatterns(converter, patterns,
-                                                         &symbolTables);
 
     mlir::ConversionTarget target(getContext());
-    target.addLegalDialect<mlir::BuiltinDialect, mlir::cf::ControlFlowDialect,
-                           mlir::LLVM::LLVMDialect>();
-    target.addIllegalDialect<SyncDialect, mlir::func::FuncDialect,
-                             mlir::memref::MemRefDialect, mlir::ptr::PtrDialect>();
-    target.addLegalOp<mlir::ModuleOp>();
+    configureConvertSyncToLLVMConversionLegality(target);
+    target.addLegalDialect<mlir::LLVM::LLVMDialect>();
 
     if (mlir::failed(
             mlir::applyFullConversion(moduleOp, target, std::move(patterns))))
@@ -147,5 +160,11 @@ struct ConvertSyncToLLVMPass
 };
 
 } // namespace
+
+void registerConvertSyncToLLVMInterface(mlir::DialectRegistry &registry) {
+  registry.addExtension(+[](mlir::MLIRContext *context, SyncDialect *dialect) {
+    dialect->addInterfaces<SyncConvertToLLVMPatternInterface>();
+  });
+}
 
 } // namespace mlir::sync

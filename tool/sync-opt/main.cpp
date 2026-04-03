@@ -5,6 +5,7 @@
 #include <mlir/Pass/PassRegistry.h>
 #include <mlir/Tools/mlir-opt/MlirOptMain.h>
 
+#include "Sync/Conversion/ConvertSyncToLLVM.h"
 #include "Sync/Conversion/Passes.h"
 #include "Sync/IR/SyncDialect.h"
 
@@ -12,6 +13,7 @@ int main(int argc, char **argv) {
   mlir::DialectRegistry registry;
   mlir::registerAllDialects(registry);
   registry.insert<mlir::sync::SyncDialect>();
+  mlir::sync::registerConvertSyncToLLVMInterface(registry);
   mlir::registerAllExtensions(registry);
   mlir::registerAllPasses();
   mlir::registerPass([]() -> std::unique_ptr<mlir::Pass> {
