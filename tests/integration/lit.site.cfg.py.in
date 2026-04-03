@@ -8,6 +8,7 @@ config.mlir_translate_path = r"@mlir_translate_path@"
 config.not_path = r"@not_path@"
 config.sync_opt_path = r"@CMAKE_RUNTIME_OUTPUT_DIRECTORY@/sync-opt@CMAKE_EXECUTABLE_SUFFIX@"
 config.sync_runtime_lib_path = r"@sync_runtime_lib_path@"
+config.host_system = r"@CMAKE_SYSTEM_NAME@"
 config.test_output_root = r"@CMAKE_CURRENT_BINARY_DIR@"
 
 lit_config.load_config(config, os.path.join(config.test_root, "lit.cfg.py"))

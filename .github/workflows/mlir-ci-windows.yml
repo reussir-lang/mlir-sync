@@ -1,0 +1,72 @@
+name: MLIR CI (Windows)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-and-test:
+    runs-on: windows-2025
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Restore file timestamps
+        uses: chetan/git-restore-mtime-action@v2
+
+      - name: Setup MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: clang64
+          update: true
+          install: >-
+            git
+            mingw-w64-clang-x86_64-clang
+            mingw-w64-clang-x86_64-cmake
+            mingw-w64-clang-x86_64-lld
+            mingw-w64-clang-x86_64-llvm
+            mingw-w64-clang-x86_64-llvm-openmp
+            mingw-w64-clang-x86_64-llvm-tools
+            mingw-w64-clang-x86_64-libc++
+            mingw-w64-clang-x86_64-ninja
+            mingw-w64-clang-x86_64-mlir
+            mingw-w64-clang-x86_64-python
+            mingw-w64-clang-x86_64-python-pip
+            mingw-w64-clang-x86_64-rustup
+
+      - name: Install Rust target and lit
+        shell: msys2 {0}
+        run: |
+          python -m pip install --break-system-packages lit
+          rustup toolchain install stable-x86_64-pc-windows-gnullvm
+          rustup target add x86_64-pc-windows-gnullvm
+          rustup default stable-x86_64-pc-windows-gnullvm
+
+      - name: Configure CMake
+        shell: msys2 {0}
+        run: |
+          cmake -S . -B build \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DPython3_EXECUTABLE="$(which python)" \
+            -DSYNC_ENABLE_TESTS=ON
+
+      - name: Build
+        shell: msys2 {0}
+        run: cmake --build build --parallel
+
+      - name: Run MLIR integration tests
+        shell: msys2 {0}
+        run: cmake --build build --target check-sync --parallel

@@ -1,0 +1,83 @@
+name: MLIR CI (Ubuntu)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  LLVM_VERSION: "22"
+
+jobs:
+  build-and-test:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: ubuntu x86_64
+            os: ubuntu-24.04
+          - name: ubuntu arm64
+            os: ubuntu-24.04-arm
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Restore file timestamps
+        uses: chetan/git-restore-mtime-action@v2
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ca-certificates cmake gnupg ninja-build python3-pip wget
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc > /dev/null
+          . /etc/os-release
+          echo "deb http://apt.llvm.org/${VERSION_CODENAME}/ llvm-toolchain-${VERSION_CODENAME}-${LLVM_VERSION} main" | sudo tee /etc/apt/sources.list.d/llvm.list
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang-${LLVM_VERSION} \
+            lld-${LLVM_VERSION} \
+            libmlir-${LLVM_VERSION}-dev \
+            libomp-${LLVM_VERSION}-dev \
+            mlir-${LLVM_VERSION}-tools \
+            llvm-${LLVM_VERSION}-dev \
+            llvm-${LLVM_VERSION}-tools
+          python3 -m pip install --user lit
+          echo "/usr/lib/llvm-${LLVM_VERSION}/bin" >> "${GITHUB_PATH}"
+          echo "LLVM_DIR=/usr/lib/llvm-${LLVM_VERSION}/lib/cmake/llvm" >> "${GITHUB_ENV}"
+          echo "MLIR_DIR=/usr/lib/llvm-${LLVM_VERSION}/lib/cmake/mlir" >> "${GITHUB_ENV}"
+          echo "LD_LIBRARY_PATH=/usr/lib/llvm-${LLVM_VERSION}/lib:${LD_LIBRARY_PATH}" >> "${GITHUB_ENV}"
+          echo "LLVM_SYMBOLIZER_PATH=/usr/lib/llvm-${LLVM_VERSION}/bin/llvm-symbolizer" >> "${GITHUB_ENV}"
+
+      - name: Configure CMake
+        run: |
+          cmake -S . -B build \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_C_COMPILER=clang-${LLVM_VERSION} \
+            -DCMAKE_CXX_COMPILER=clang++-${LLVM_VERSION} \
+            -DLLVM_USE_LINKER=lld \
+            -DSYNC_ENABLE_TESTS=ON \
+            -DLLVM_DIR="${LLVM_DIR}" \
+            -DMLIR_DIR="${MLIR_DIR}"
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Run MLIR integration tests
+        run: cmake --build build --target check-sync --parallel
