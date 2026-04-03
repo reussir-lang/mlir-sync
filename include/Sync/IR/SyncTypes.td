@@ -20,4 +20,17 @@ def SyncRawMutexType
   let assemblyFormat = "";
 }
 
+def SyncMutexType
+    : SyncType<"Mutex", "mutex", [MemRefElementTypeInterface]> {
+  let summary = "Mutex with inline payload storage";
+  let description = [{
+    `!sync.mutex<T>` stores a raw mutex header together with a payload of type
+    `T`. The LLVM lowering maps it to a structure containing an `i32` mutex
+    header followed by the lowered payload type.
+  }];
+  let parameters = (ins "Type":$valueType);
+  let assemblyFormat = "`<` $valueType `>`";
+  let genVerifyDecl = 1;
+}
+
 #endif // SYNC_IR_SYNCTYPES_TD

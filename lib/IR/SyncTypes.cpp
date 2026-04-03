@@ -1,7 +1,15 @@
 #include "Sync/IR/SyncTypes.h"
 
-#include <llvm/ADT/TypeSwitch.h>
-#include <mlir/IR/DialectImplementation.h>
+#include <mlir/IR/BuiltinTypes.h>
 
-#define GET_TYPEDEF_CLASSES
-#include "Sync/IR/SyncTypes.cpp.inc"
+namespace mlir::sync {
+
+mlir::LogicalResult MutexType::verify(
+    llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
+    mlir::Type valueType) {
+  if (!mlir::BaseMemRefType::isValidElementType(valueType))
+    return emitError() << "mutex payload type must be a valid memref element type";
+  return mlir::success();
+}
+
+} // namespace mlir::sync

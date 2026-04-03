@@ -3,6 +3,7 @@ get_property(conversion_libs GLOBAL PROPERTY MLIR_CONVERSION_LIBS)
 get_property(extension_libs GLOBAL PROPERTY MLIR_EXTENSION_LIBS)
 
 add_mlir_tool(sync-opt
+  AttachHostLLVMLayout.cpp
   main.cpp
   DEPENDS
     MLIROptLib

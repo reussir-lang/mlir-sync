@@ -4,12 +4,16 @@
 include "Sync/IR/SyncDialect.td"
 include "Sync/IR/SyncTypes.td"
 include "mlir/IR/OpBase.td"
+include "mlir/Interfaces/SideEffectInterfaces.td"
 
 class SyncOp<string mnemonic, list<Trait> traits = []>
     : Op<SyncDialect, mnemonic, traits>;
 
 class SyncRawMutexOp<string mnemonic, list<Trait> traits = []>
     : SyncOp<"raw_mutex." # mnemonic, traits>;
+
+class SyncMutexOp<string mnemonic, list<Trait> traits = []>
+    : SyncOp<"mutex." # mnemonic, traits>;
 
 def SyncRawMutexInitOp : SyncRawMutexOp<"init"> {
   let summary = "Initialize a raw mutex";
@@ -66,6 +70,60 @@ def SyncRawMutexUnlockOp : SyncRawMutexOp<"unlock"> {
   let arguments = (ins MemRefRankOf<[AnyType], [0]>:$mutex);
   let assemblyFormat = "$mutex attr-dict `:` type($mutex)";
   let hasVerifier = 1;
+}
+
+def SyncYieldOp : SyncOp<"yield", [HasParent<"SyncMutexCriticalSectionOp">,
+                                   Terminator]> {
+  let summary = "Terminate a sync region";
+  let description = [{
+    `sync.yield` terminates the body region of `sync.mutex.critical_section`.
+  }];
+  let arguments = (ins Variadic<AnyType>:$values);
+  let builders = [
+    OpBuilder<(ins), [{ build($_builder, $_state, ValueRange{}); }]>
+  ];
+  let assemblyFormat = "($values^ `:` type($values))? attr-dict";
+}
+
+def SyncMutexGetRawMutexOp : SyncMutexOp<"get_raw_mutex"> {
+  let summary = "Project the raw mutex header";
+  let description = [{
+    `sync.mutex.get_raw_mutex` projects a zero-ranked memref containing
+    `!sync.mutex<T>` to a zero-ranked memref containing the raw mutex header.
+  }];
+  let arguments = (ins MemRefRankOf<[AnyType], [0]>:$mutex);
+  let results = (outs MemRefRankOf<[AnyType], [0]>:$rawMutex);
+  let assemblyFormat = "$mutex attr-dict `:` type($mutex) `->` type($rawMutex)";
+  let hasVerifier = 1;
+}
+
+def SyncMutexGetPayloadOp : SyncMutexOp<"get_payload"> {
+  let summary = "Project the inline payload";
+  let description = [{
+    `sync.mutex.get_payload` projects a zero-ranked memref containing
+    `!sync.mutex<T>` to a zero-ranked memref containing the payload `T`.
+  }];
+  let arguments = (ins MemRefRankOf<[AnyType], [0]>:$mutex);
+  let results = (outs MemRefRankOf<[AnyType], [0]>:$payload);
+  let assemblyFormat = "$mutex attr-dict `:` type($mutex) `->` type($payload)";
+  let hasVerifier = 1;
+}
+
+def SyncMutexCriticalSectionOp : SyncMutexOp<"critical_section", [
+      RecursiveMemoryEffects,
+      SingleBlockImplicitTerminator<"SyncYieldOp">
+    ]> {
+  let summary = "Execute a critical section over a mutex payload";
+  let description = [{
+    `sync.mutex.critical_section` acquires the mutex, executes the region with a
+    zero-ranked memref to the payload, and releases the mutex on exit.
+  }];
+  let arguments = (ins MemRefRankOf<[AnyType], [0]>:$mutex);
+  let results = (outs Variadic<AnyType>:$results);
+  let regions = (region SizedRegion<1>:$body);
+  let assemblyFormat = "$mutex attr-dict `:` type($mutex) (`->` type($results)^)? regions";
+  let hasVerifier = 1;
+  let hasRegionVerifier = 1;
 }
 
 #endif // SYNC_IR_SYNCOPS_TD

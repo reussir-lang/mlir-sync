@@ -63,6 +63,19 @@ mlir::Value materializeRuntimePtr(mlir::Location loc, mlir::Value mutex,
   return mlir::ptr::ToPtrOp::create(rewriter, loc, ptrType, mutex);
 }
 
+mlir::MemRefType getRawMutexProjectionType(mlir::MemRefType mutexType) {
+  return mlir::MemRefType::get(
+      {}, RawMutexType::get(mutexType.getContext()),
+      mlir::MemRefLayoutAttrInterface{}, mutexType.getMemorySpace());
+}
+
+mlir::MemRefType getPayloadProjectionType(mlir::MemRefType mutexType) {
+  auto mutexElementType = llvm::cast<MutexType>(mutexType.getElementType());
+  return mlir::MemRefType::get({}, mutexElementType.getValueType(),
+                               mlir::MemRefLayoutAttrInterface{},
+                               mutexType.getMemorySpace());
+}
+
 struct RawMutexLockLowering : public mlir::OpRewritePattern<SyncRawMutexLockOp> {
   using OpRewritePattern::OpRewritePattern;
 
@@ -118,10 +131,52 @@ struct RawMutexUnlockLowering
   }
 };
 
+struct MutexCriticalSectionLowering
+    : public mlir::OpRewritePattern<SyncMutexCriticalSectionOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  mlir::LogicalResult matchAndRewrite(
+      SyncMutexCriticalSectionOp op,
+      mlir::PatternRewriter &rewriter) const override {
+    auto loc = op.getLoc();
+    auto mutexType = llvm::cast<mlir::MemRefType>(op.getMutex().getType());
+    auto rawMutexType = getRawMutexProjectionType(mutexType);
+    auto payloadType = getPayloadProjectionType(mutexType);
+
+    rewriter.setInsertionPoint(op);
+    auto rawMutex =
+        SyncMutexGetRawMutexOp::create(rewriter, loc, rawMutexType, op.getMutex())
+            .getResult();
+    SyncRawMutexLockOp::create(rewriter, loc, rawMutex);
+    auto payload =
+        SyncMutexGetPayloadOp::create(rewriter, loc, payloadType, op.getMutex())
+            .getResult();
+
+    auto &bodyBlock = op.getBody().front();
+    auto yieldOp = llvm::cast<SyncYieldOp>(bodyBlock.getTerminator());
+    llvm::SmallVector<mlir::Value> yieldedValues;
+    yieldedValues.reserve(yieldOp->getNumOperands());
+    for (mlir::Value value : yieldOp->getOperands())
+      yieldedValues.push_back(value == bodyBlock.getArgument(0) ? payload
+                                                                : value);
+    rewriter.eraseOp(yieldOp);
+    rewriter.inlineBlockBefore(&bodyBlock, op, mlir::ValueRange{payload});
+    rewriter.setInsertionPoint(op);
+    SyncRawMutexUnlockOp::create(rewriter, loc, rawMutex);
+
+    if (op.getNumResults() == 0)
+      rewriter.eraseOp(op);
+    else
+      rewriter.replaceOp(op, yieldedValues);
+    return mlir::success();
+  }
+};
+
 } // namespace
 
 void populateConvertSyncToSTDPatterns(mlir::RewritePatternSet &patterns) {
-  patterns.add<RawMutexLockLowering, RawMutexUnlockLowering>(
+  patterns.add<RawMutexLockLowering, RawMutexUnlockLowering,
+               MutexCriticalSectionLowering>(
       patterns.getContext());
 }
 

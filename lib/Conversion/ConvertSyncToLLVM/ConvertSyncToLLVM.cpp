@@ -2,6 +2,7 @@
 
 #include <mlir/Conversion/ConvertToLLVM/ToLLVMInterface.h>
 #include <mlir/Conversion/FuncToLLVM/ConvertFuncToLLVM.h>
+#include <mlir/Conversion/LLVMCommon/MemRefBuilder.h>
 #include <mlir/Conversion/LLVMCommon/Pattern.h>
 #include <mlir/Conversion/MemRefToLLVM/MemRefToLLVM.h>
 #include <mlir/Conversion/PtrToLLVM/PtrToLLVM.h>
@@ -42,6 +43,23 @@ mlir::Value getRawMutexPointer(OpTy op, typename OpTy::Adaptor adaptor,
   auto memrefType = llvm::cast<mlir::MemRefType>(op.getMutex().getType());
   return mlir::LLVM::getStridedElementPtr(rewriter, op.getLoc(), converter,
                                           memrefType, adaptor.getMutex(), {});
+}
+
+mlir::Value getMutexPointer(mlir::Value mutex, mlir::MemRefType memrefType,
+                            const mlir::LLVMTypeConverter &converter,
+                            mlir::Location loc,
+                            mlir::ConversionPatternRewriter &rewriter) {
+  return mlir::LLVM::getStridedElementPtr(rewriter, loc, converter, memrefType,
+                                          mutex, {});
+}
+
+mlir::Value getMutexFieldPointer(mlir::Location loc, mlir::Value mutexPtr,
+                                 mlir::Type mutexElementType, unsigned field,
+                                 mlir::ConversionPatternRewriter &rewriter) {
+  llvm::SmallVector<mlir::LLVM::GEPArg> indices{0, static_cast<int32_t>(field)};
+  return mlir::LLVM::GEPOp::create(rewriter, loc, mutexPtr.getType(),
+                                   mutexElementType, mutexPtr, indices)
+      .getResult();
 }
 
 struct RawMutexInitLowering
@@ -109,6 +127,62 @@ struct RawMutexUnlockFastLowering
   }
 };
 
+struct MutexGetRawMutexLowering
+    : public mlir::OpConversionPattern<SyncMutexGetRawMutexOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  mlir::LogicalResult
+  matchAndRewrite(SyncMutexGetRawMutexOp op, OpAdaptor adaptor,
+                  mlir::ConversionPatternRewriter &rewriter) const override {
+    auto &converter =
+        *static_cast<const mlir::LLVMTypeConverter *>(getTypeConverter());
+    auto mutexType = llvm::cast<mlir::MemRefType>(op.getMutex().getType());
+    auto rawMutexType = llvm::cast<mlir::MemRefType>(op.getRawMutex().getType());
+    auto mutexElementType = converter.convertType(mutexType.getElementType());
+    if (!mutexElementType)
+      return rewriter.notifyMatchFailure(op, "failed to convert mutex type");
+
+    auto mutexPtr =
+        getMutexPointer(adaptor.getMutex(), mutexType, converter, op.getLoc(),
+                        rewriter);
+    auto rawMutexPtr = getMutexFieldPointer(op.getLoc(), mutexPtr,
+                                            mutexElementType, /*field=*/0,
+                                            rewriter);
+    auto descriptor = mlir::MemRefDescriptor::fromStaticShape(
+        rewriter, op.getLoc(), converter, rawMutexType, rawMutexPtr);
+    rewriter.replaceOp(op, mlir::Value(descriptor));
+    return mlir::success();
+  }
+};
+
+struct MutexGetPayloadLowering
+    : public mlir::OpConversionPattern<SyncMutexGetPayloadOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  mlir::LogicalResult
+  matchAndRewrite(SyncMutexGetPayloadOp op, OpAdaptor adaptor,
+                  mlir::ConversionPatternRewriter &rewriter) const override {
+    auto &converter =
+        *static_cast<const mlir::LLVMTypeConverter *>(getTypeConverter());
+    auto mutexType = llvm::cast<mlir::MemRefType>(op.getMutex().getType());
+    auto payloadType = llvm::cast<mlir::MemRefType>(op.getPayload().getType());
+    auto mutexElementType = converter.convertType(mutexType.getElementType());
+    if (!mutexElementType)
+      return rewriter.notifyMatchFailure(op, "failed to convert mutex type");
+
+    auto mutexPtr =
+        getMutexPointer(adaptor.getMutex(), mutexType, converter, op.getLoc(),
+                        rewriter);
+    auto payloadPtr = getMutexFieldPointer(op.getLoc(), mutexPtr,
+                                           mutexElementType, /*field=*/1,
+                                           rewriter);
+    auto descriptor = mlir::MemRefDescriptor::fromStaticShape(
+        rewriter, op.getLoc(), converter, payloadType, payloadPtr);
+    rewriter.replaceOp(op, mlir::Value(descriptor));
+    return mlir::success();
+  }
+};
+
 } // namespace
 
 void configureConvertSyncToLLVMConversionLegality(
@@ -119,7 +193,8 @@ void configureConvertSyncToLLVMConversionLegality(
 void populateConvertSyncToLLVMConversionPatterns(
     mlir::LLVMTypeConverter &converter, mlir::RewritePatternSet &patterns) {
   patterns.add<RawMutexInitLowering, RawMutexTryLockLowering,
-               RawMutexUnlockFastLowering>(
+               RawMutexUnlockFastLowering, MutexGetRawMutexLowering,
+               MutexGetPayloadLowering>(
       converter, patterns.getContext());
 }
 
