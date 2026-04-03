@@ -47,6 +47,10 @@ jobs:
           $llvmBin = Join-Path $llvmRoot "bin"
           $llvmDir = Join-Path $llvmRoot "lib\cmake\llvm"
           $mlirDir = Join-Path $llvmRoot "lib\cmake\mlir"
+          $llvmVersion = & (Join-Path $llvmBin "llvm-config.exe") --version
+          if (-not $llvmVersion.StartsWith("22.")) {
+            throw "Expected LLVM 22.x, found $llvmVersion"
+          }
           $llvmBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           "LLVM_DIR=$llvmDir" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "MLIR_DIR=$mlirDir" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append

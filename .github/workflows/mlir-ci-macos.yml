@@ -41,6 +41,14 @@ jobs:
         run: |
           LLVM_PREFIX="$(brew --prefix llvm)"
           LIBOMP_PREFIX="$(brew --prefix libomp)"
+          LLVM_VERSION="$("${LLVM_PREFIX}/bin/llvm-config" --version)"
+          case "${LLVM_VERSION}" in
+            22.*) ;;
+            *)
+              echo "Expected LLVM 22.x, found ${LLVM_VERSION}" >&2
+              exit 1
+              ;;
+          esac
           echo "${LLVM_PREFIX}/bin" >> "${GITHUB_PATH}"
           echo "LLVM_PREFIX=${LLVM_PREFIX}" >> "${GITHUB_ENV}"
           echo "LIBOMP_PREFIX=${LIBOMP_PREFIX}" >> "${GITHUB_ENV}"
