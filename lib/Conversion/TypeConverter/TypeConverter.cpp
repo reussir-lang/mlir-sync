@@ -25,6 +25,12 @@ mlir::Type getOpaquePtrType(mlir::MLIRContext *context) {
   return mlir::LLVM::LLVMPointerType::get(context);
 }
 
+mlir::LLVM::LLVMStructType getRawRwLockLLVMType(mlir::MLIRContext *context) {
+  return mlir::LLVM::LLVMStructType::getLiteral(
+      context, {mlir::IntegerType::get(context, 32),
+                mlir::IntegerType::get(context, 32)});
+}
+
 mlir::LLVM::LLVMStructType getCombiningRawLockLLVMType(mlir::MLIRContext *context) {
   return mlir::LLVM::LLVMStructType::getLiteral(
       context, {getOpaquePtrType(context), mlir::IntegerType::get(context, 8)});
@@ -36,6 +42,9 @@ void populateSyncToLLVMTypeConversions(mlir::LLVMTypeConverter &converter) {
   converter.addConversion([](RawMutexType type) -> mlir::Type {
     return mlir::IntegerType::get(type.getContext(), 32);
   });
+  converter.addConversion([](RawRwLockType type) -> mlir::Type {
+    return getRawRwLockLLVMType(type.getContext());
+  });
   converter.addConversion([&converter](MutexType type) -> mlir::Type {
     auto i32Type = mlir::IntegerType::get(type.getContext(), 32);
     mlir::Type payloadType = converter.convertType(type.getValueType());
@@ -43,6 +52,13 @@ void populateSyncToLLVMTypeConversions(mlir::LLVMTypeConverter &converter) {
       return {};
     return mlir::LLVM::LLVMStructType::getLiteral(
         type.getContext(), {i32Type, payloadType});
+  });
+  converter.addConversion([&converter](RwLockType type) -> mlir::Type {
+    mlir::Type payloadType = converter.convertType(type.getValueType());
+    if (!payloadType)
+      return {};
+    return mlir::LLVM::LLVMStructType::getLiteral(
+        type.getContext(), {getRawRwLockLLVMType(type.getContext()), payloadType});
   });
   converter.addConversion([&converter](CombiningLockType type) -> mlir::Type {
     mlir::Type payloadType = converter.convertType(type.getValueType());

@@ -43,6 +43,39 @@ mlir::LogicalResult verifyMutexMemRef(mlir::Operation *op, mlir::Type type,
   return mlir::success();
 }
 
+mlir::LogicalResult verifyRawRwLockMemRef(mlir::Operation *op, mlir::Type type,
+                                          llvm::StringRef operandName) {
+  auto memrefType = llvm::dyn_cast<mlir::MemRefType>(type);
+  if (!memrefType)
+    return op->emitOpError() << operandName << " must be a ranked memref";
+  if (memrefType.getRank() != 0)
+    return op->emitOpError() << operandName
+                             << " must be a zero-ranked memref, got "
+                             << memrefType;
+  if (!llvm::isa<RawRwLockType>(memrefType.getElementType()))
+    return op->emitOpError()
+           << operandName
+           << " element type must be !sync.raw_rwlock, got "
+           << memrefType.getElementType();
+  return mlir::success();
+}
+
+mlir::LogicalResult verifyRwLockMemRef(mlir::Operation *op, mlir::Type type,
+                                       llvm::StringRef operandName) {
+  auto memrefType = llvm::dyn_cast<mlir::MemRefType>(type);
+  if (!memrefType)
+    return op->emitOpError() << operandName << " must be a ranked memref";
+  if (memrefType.getRank() != 0)
+    return op->emitOpError() << operandName
+                             << " must be a zero-ranked memref, got "
+                             << memrefType;
+  if (!llvm::isa<RwLockType>(memrefType.getElementType()))
+    return op->emitOpError() << operandName
+                             << " element type must be !sync.rwlock<...>, got "
+                             << memrefType.getElementType();
+  return mlir::success();
+}
+
 mlir::LogicalResult verifyCombiningLockMemRef(mlir::Operation *op,
                                               mlir::Type type,
                                               llvm::StringRef operandName) {
@@ -100,6 +133,19 @@ mlir::MemRefType getPayloadProjectionType(mlir::MemRefType mutexType) {
                                mutexType.getMemorySpace());
 }
 
+mlir::MemRefType getRawRwLockProjectionType(mlir::MemRefType rwlockType) {
+  return mlir::MemRefType::get(
+      {}, RawRwLockType::get(rwlockType.getContext()),
+      mlir::MemRefLayoutAttrInterface{}, rwlockType.getMemorySpace());
+}
+
+mlir::MemRefType getRwLockPayloadProjectionType(mlir::MemRefType rwlockType) {
+  auto rwlockElementType = llvm::cast<RwLockType>(rwlockType.getElementType());
+  return mlir::MemRefType::get({}, rwlockElementType.getValueType(),
+                               mlir::MemRefLayoutAttrInterface{},
+                               rwlockType.getMemorySpace());
+}
+
 mlir::MemRefType getCombiningLockPayloadProjectionType(
     mlir::MemRefType lockType) {
   auto lockElementType =
@@ -145,6 +191,64 @@ mlir::LogicalResult SyncRawMutexUnlockOp::verify() {
   return verifyRawMutexMemRef(*this, getMutex().getType(), "mutex");
 }
 
+mlir::LogicalResult SyncRawRwLockInitOp::verify() {
+  return verifyRawRwLockMemRef(*this, getRwlock().getType(), "rwlock");
+}
+
+mlir::LogicalResult SyncRawRwLockLoadStateOp::verify() {
+  return verifyRawRwLockMemRef(*this, getRwlock().getType(), "rwlock");
+}
+
+mlir::LogicalResult SyncRawRwLockCmpxchgStateOp::verify() {
+  return verifyRawRwLockMemRef(*this, getRwlock().getType(), "rwlock");
+}
+
+mlir::LogicalResult SyncRawRwLockTryReadLockOp::verify() {
+  return verifyRawRwLockMemRef(*this, getRwlock().getType(), "rwlock");
+}
+
+mlir::LogicalResult SyncRawRwLockReadLockOp::verify() {
+  return verifyRawRwLockMemRef(*this, getRwlock().getType(), "rwlock");
+}
+
+mlir::LogicalResult SyncRawRwLockReadUnlockFastOp::verify() {
+  return verifyRawRwLockMemRef(*this, getRwlock().getType(), "rwlock");
+}
+
+mlir::LogicalResult SyncRawRwLockReadUnlockOp::verify() {
+  return verifyRawRwLockMemRef(*this, getRwlock().getType(), "rwlock");
+}
+
+mlir::LogicalResult SyncRawRwLockTryWriteLockOp::verify() {
+  return verifyRawRwLockMemRef(*this, getRwlock().getType(), "rwlock");
+}
+
+mlir::LogicalResult SyncRawRwLockWriteLockOp::verify() {
+  return verifyRawRwLockMemRef(*this, getRwlock().getType(), "rwlock");
+}
+
+mlir::LogicalResult SyncRawRwLockWriteUnlockFastOp::verify() {
+  return verifyRawRwLockMemRef(*this, getRwlock().getType(), "rwlock");
+}
+
+mlir::LogicalResult SyncRawRwLockWriteUnlockOp::verify() {
+  return verifyRawRwLockMemRef(*this, getRwlock().getType(), "rwlock");
+}
+
+mlir::LogicalResult SyncRwLockInitOp::verify() {
+  if (mlir::failed(verifyRwLockMemRef(*this, getRwlock().getType(), "rwlock")))
+    return mlir::failure();
+
+  if (mlir::Value initialValue = getInitialValue()) {
+    auto rwlockType = llvm::cast<mlir::MemRefType>(getRwlock().getType());
+    auto payloadType = getRwLockPayloadProjectionType(rwlockType).getElementType();
+    if (initialValue.getType() != payloadType)
+      return emitOpError() << "initial value type must be " << payloadType
+                           << ", got " << initialValue.getType();
+  }
+  return mlir::success();
+}
+
 mlir::LogicalResult SyncMutexGetRawMutexOp::verify() {
   if (mlir::failed(verifyMutexMemRef(*this, getMutex().getType(), "mutex")))
     return mlir::failure();
@@ -163,6 +267,30 @@ mlir::LogicalResult SyncMutexGetPayloadOp::verify() {
 
   auto mutexType = llvm::cast<mlir::MemRefType>(getMutex().getType());
   auto expectedType = getPayloadProjectionType(mutexType);
+  if (getPayload().getType() != expectedType)
+    return emitOpError() << "result type must be " << expectedType << ", got "
+                         << getPayload().getType();
+  return mlir::success();
+}
+
+mlir::LogicalResult SyncRwLockGetRawRwLockOp::verify() {
+  if (mlir::failed(verifyRwLockMemRef(*this, getRwlock().getType(), "rwlock")))
+    return mlir::failure();
+
+  auto rwlockType = llvm::cast<mlir::MemRefType>(getRwlock().getType());
+  auto expectedType = getRawRwLockProjectionType(rwlockType);
+  if (getRawRwLock().getType() != expectedType)
+    return emitOpError() << "result type must be " << expectedType << ", got "
+                         << getRawRwLock().getType();
+  return mlir::success();
+}
+
+mlir::LogicalResult SyncRwLockGetPayloadOp::verify() {
+  if (mlir::failed(verifyRwLockMemRef(*this, getRwlock().getType(), "rwlock")))
+    return mlir::failure();
+
+  auto rwlockType = llvm::cast<mlir::MemRefType>(getRwlock().getType());
+  auto expectedType = getRwLockPayloadProjectionType(rwlockType);
   if (getPayload().getType() != expectedType)
     return emitOpError() << "result type must be " << expectedType << ", got "
                          << getPayload().getType();
@@ -198,6 +326,54 @@ mlir::LogicalResult SyncMutexCriticalSectionOp::verifyRegions() {
                            << " but operation result type is " << resultType;
   }
   return mlir::success();
+}
+
+static mlir::LogicalResult verifyRwLockCriticalSectionRegions(
+    mlir::Operation *op, mlir::Value rwlock, mlir::Region &body,
+    mlir::TypeRange resultTypes) {
+  auto &block = body.front();
+  if (block.getNumArguments() != 1)
+    return op->emitOpError() << "body must have exactly one block argument";
+
+  auto rwlockType = llvm::cast<mlir::MemRefType>(rwlock.getType());
+  auto expectedPayloadType = getRwLockPayloadProjectionType(rwlockType);
+  if (block.getArgument(0).getType() != expectedPayloadType)
+    return op->emitOpError() << "body argument must have type "
+                             << expectedPayloadType << ", got "
+                             << block.getArgument(0).getType();
+
+  auto yieldOp = llvm::dyn_cast<SyncYieldOp>(block.getTerminator());
+  if (!yieldOp)
+    return op->emitOpError() << "body must terminate with sync.yield";
+  if (yieldOp->getNumOperands() != resultTypes.size())
+    return op->emitOpError() << "body must yield " << resultTypes.size()
+                             << " values, got " << yieldOp->getNumOperands();
+  for (auto [yieldedType, resultType] :
+       llvm::zip_equal(yieldOp->getOperandTypes(), resultTypes)) {
+    if (yieldedType != resultType)
+      return op->emitOpError() << "body yielded type " << yieldedType
+                               << " but operation result type is "
+                               << resultType;
+  }
+  return mlir::success();
+}
+
+mlir::LogicalResult SyncRwLockReadCriticalSectionOp::verify() {
+  return verifyRwLockMemRef(*this, getRwlock().getType(), "rwlock");
+}
+
+mlir::LogicalResult SyncRwLockReadCriticalSectionOp::verifyRegions() {
+  return verifyRwLockCriticalSectionRegions(*this, getRwlock(), getBody(),
+                                            getResultTypes());
+}
+
+mlir::LogicalResult SyncRwLockWriteCriticalSectionOp::verify() {
+  return verifyRwLockMemRef(*this, getRwlock().getType(), "rwlock");
+}
+
+mlir::LogicalResult SyncRwLockWriteCriticalSectionOp::verifyRegions() {
+  return verifyRwLockCriticalSectionRegions(*this, getRwlock(), getBody(),
+                                            getResultTypes());
 }
 
 mlir::LogicalResult SyncCombiningLockInitOp::verify() {

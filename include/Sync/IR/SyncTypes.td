@@ -20,6 +20,17 @@ def SyncRawMutexType
   let assemblyFormat = "";
 }
 
+def SyncRawRwLockType
+    : SyncType<"RawRwLock", "raw_rwlock", [MemRefElementTypeInterface]> {
+  let summary = "Opaque raw rwlock state";
+  let description = [{
+    `!sync.raw_rwlock` models the storage for the portable futex rwlock
+    implementation in the runtime library. The LLVM lowering maps it to the two
+    `i32` words used by the runtime state machine.
+  }];
+  let assemblyFormat = "";
+}
+
 def SyncMutexType
     : SyncType<"Mutex", "mutex", [MemRefElementTypeInterface]> {
   let summary = "Mutex with inline payload storage";
@@ -27,6 +38,19 @@ def SyncMutexType
     `!sync.mutex<T>` stores a raw mutex header together with a payload of type
     `T`. The LLVM lowering maps it to a structure containing an `i32` mutex
     header followed by the lowered payload type.
+  }];
+  let parameters = (ins "Type":$valueType);
+  let assemblyFormat = "`<` $valueType `>`";
+  let genVerifyDecl = 1;
+}
+
+def SyncRwLockType
+    : SyncType<"RwLock", "rwlock", [MemRefElementTypeInterface]> {
+  let summary = "Reader-writer lock with inline payload storage";
+  let description = [{
+    `!sync.rwlock<T>` stores a raw rwlock header together with a payload of type
+    `T`. The LLVM lowering maps it to a structure containing the lowered raw
+    rwlock header followed by the lowered payload type.
   }];
   let parameters = (ins "Type":$valueType);
   let assemblyFormat = "`<` $valueType `>`";

@@ -29,6 +29,12 @@ namespace {
 constexpr uint64_t kUnlockedState = 0;
 constexpr uint64_t kLockedState = 1;
 constexpr uint64_t kContendedState = 2;
+constexpr uint64_t kRwLockReadLocked = 1;
+constexpr uint64_t kRwLockMask = (1ull << 30) - 1;
+constexpr uint64_t kRwLockWriteLocked = kRwLockMask;
+constexpr uint64_t kRwLockMaxReaders = kRwLockMask - 1;
+constexpr uint64_t kRwLockReadersWaiting = 1ull << 30;
+constexpr uint64_t kRwLockWritersWaiting = 1ull << 31;
 constexpr uint64_t kCombiningNodeWaiting = 0;
 
 mlir::Value createI32Constant(mlir::Location loc, uint64_t value,
@@ -63,6 +69,15 @@ mlir::Value getRawMutexPointer(OpTy op, typename OpTy::Adaptor adaptor,
                                           memrefType, adaptor.getMutex(), {});
 }
 
+template <typename OpTy>
+mlir::Value getRawRwLockPointer(OpTy op, typename OpTy::Adaptor adaptor,
+                                const mlir::LLVMTypeConverter &converter,
+                                mlir::ConversionPatternRewriter &rewriter) {
+  auto memrefType = llvm::cast<mlir::MemRefType>(op.getRwlock().getType());
+  return mlir::LLVM::getStridedElementPtr(rewriter, op.getLoc(), converter,
+                                          memrefType, adaptor.getRwlock(), {});
+}
+
 mlir::Value getMutexPointer(mlir::Value mutex, mlir::MemRefType memrefType,
                             const mlir::LLVMTypeConverter &converter,
                             mlir::Location loc,
@@ -78,6 +93,20 @@ mlir::Value getMutexFieldPointer(mlir::Location loc, mlir::Value mutexPtr,
   return mlir::LLVM::GEPOp::create(rewriter, loc, mutexPtr.getType(),
                                    mutexElementType, mutexPtr, indices)
       .getResult();
+}
+
+mlir::Value getRawRwLockStatePointer(mlir::Location loc, mlir::Value rawRwLockPtr,
+                                     mlir::Type rawRwLockType,
+                                     mlir::ConversionPatternRewriter &rewriter) {
+  return getMutexFieldPointer(loc, rawRwLockPtr, rawRwLockType, /*field=*/0,
+                              rewriter);
+}
+
+mlir::Value getRawRwLockWriterNotifyPointer(
+    mlir::Location loc, mlir::Value rawRwLockPtr, mlir::Type rawRwLockType,
+    mlir::ConversionPatternRewriter &rewriter) {
+  return getMutexFieldPointer(loc, rawRwLockPtr, rawRwLockType, /*field=*/1,
+                              rewriter);
 }
 
 mlir::Value getCombiningLockFieldPointer(mlir::Location loc, mlir::Value lockPtr,
@@ -200,6 +229,137 @@ struct RawMutexUnlockFastLowering
   }
 };
 
+struct RawRwLockInitLowering
+    : public mlir::OpConversionPattern<SyncRawRwLockInitOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  mlir::LogicalResult
+  matchAndRewrite(SyncRawRwLockInitOp op, OpAdaptor adaptor,
+                  mlir::ConversionPatternRewriter &rewriter) const override {
+    auto &converter =
+        *static_cast<const mlir::LLVMTypeConverter *>(getTypeConverter());
+    auto loc = op.getLoc();
+    auto rawRwLockType = converter.convertType(
+        llvm::cast<mlir::MemRefType>(op.getRwlock().getType()).getElementType());
+    if (!rawRwLockType)
+      return rewriter.notifyMatchFailure(op, "failed to convert raw rwlock type");
+    auto ptr = getRawRwLockPointer(op, adaptor, converter, rewriter);
+    auto statePtr = getRawRwLockStatePointer(loc, ptr, rawRwLockType, rewriter);
+    auto writerNotifyPtr =
+        getRawRwLockWriterNotifyPointer(loc, ptr, rawRwLockType, rewriter);
+    auto zero = createI32Constant(loc, kUnlockedState, rewriter);
+    mlir::LLVM::StoreOp::create(rewriter, loc, zero, statePtr);
+    mlir::LLVM::StoreOp::create(rewriter, loc, zero, writerNotifyPtr);
+    rewriter.eraseOp(op);
+    return mlir::success();
+  }
+};
+
+struct RawRwLockLoadStateLowering
+    : public mlir::OpConversionPattern<SyncRawRwLockLoadStateOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  mlir::LogicalResult
+  matchAndRewrite(SyncRawRwLockLoadStateOp op, OpAdaptor adaptor,
+                  mlir::ConversionPatternRewriter &rewriter) const override {
+    auto &converter =
+        *static_cast<const mlir::LLVMTypeConverter *>(getTypeConverter());
+    auto loc = op.getLoc();
+    auto rawRwLockType = converter.convertType(
+        llvm::cast<mlir::MemRefType>(op.getRwlock().getType()).getElementType());
+    if (!rawRwLockType)
+      return rewriter.notifyMatchFailure(op, "failed to convert raw rwlock type");
+    auto ptr = getRawRwLockPointer(op, adaptor, converter, rewriter);
+    auto statePtr = getRawRwLockStatePointer(loc, ptr, rawRwLockType, rewriter);
+    auto current = mlir::LLVM::LoadOp::create(rewriter, loc, rewriter.getI32Type(),
+                                              statePtr);
+    rewriter.replaceOp(op, current.getResult());
+    return mlir::success();
+  }
+};
+
+struct RawRwLockReadUnlockFastLowering
+    : public mlir::OpConversionPattern<SyncRawRwLockReadUnlockFastOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  mlir::LogicalResult
+  matchAndRewrite(SyncRawRwLockReadUnlockFastOp op, OpAdaptor adaptor,
+                  mlir::ConversionPatternRewriter &rewriter) const override {
+    auto &converter =
+        *static_cast<const mlir::LLVMTypeConverter *>(getTypeConverter());
+    auto loc = op.getLoc();
+    auto rawRwLockType = converter.convertType(
+        llvm::cast<mlir::MemRefType>(op.getRwlock().getType()).getElementType());
+    if (!rawRwLockType)
+      return rewriter.notifyMatchFailure(op, "failed to convert raw rwlock type");
+    auto ptr = getRawRwLockPointer(op, adaptor, converter, rewriter);
+    auto statePtr = getRawRwLockStatePointer(loc, ptr, rawRwLockType, rewriter);
+    auto readLocked = createI32Constant(loc, kRwLockReadLocked, rewriter);
+    auto previous = mlir::LLVM::AtomicRMWOp::create(
+        rewriter, loc, mlir::LLVM::AtomicBinOp::sub, statePtr, readLocked,
+        mlir::LLVM::AtomicOrdering::release);
+    auto state = mlir::LLVM::SubOp::create(rewriter, loc, previous.getResult(),
+                                           readLocked);
+    rewriter.replaceOp(op, state.getResult());
+    return mlir::success();
+  }
+};
+
+struct RawRwLockCmpxchgStateLowering
+    : public mlir::OpConversionPattern<SyncRawRwLockCmpxchgStateOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  mlir::LogicalResult
+  matchAndRewrite(SyncRawRwLockCmpxchgStateOp op, OpAdaptor adaptor,
+                  mlir::ConversionPatternRewriter &rewriter) const override {
+    auto &converter =
+        *static_cast<const mlir::LLVMTypeConverter *>(getTypeConverter());
+    auto loc = op.getLoc();
+    auto rawRwLockType = converter.convertType(
+        llvm::cast<mlir::MemRefType>(op.getRwlock().getType()).getElementType());
+    if (!rawRwLockType)
+      return rewriter.notifyMatchFailure(op, "failed to convert raw rwlock type");
+    auto ptr = getRawRwLockPointer(op, adaptor, converter, rewriter);
+    auto statePtr = getRawRwLockStatePointer(loc, ptr, rawRwLockType, rewriter);
+    auto cmpxchg = mlir::LLVM::AtomicCmpXchgOp::create(
+        rewriter, loc, statePtr, adaptor.getExpected(), adaptor.getDesired(),
+        mlir::LLVM::AtomicOrdering::acquire,
+        mlir::LLVM::AtomicOrdering::monotonic);
+    auto success = mlir::LLVM::ExtractValueOp::create(
+        rewriter, loc, rewriter.getI1Type(), cmpxchg.getResult(),
+        llvm::ArrayRef<int64_t>{1});
+    rewriter.replaceOp(op, success.getResult());
+    return mlir::success();
+  }
+};
+
+struct RawRwLockWriteUnlockFastLowering
+    : public mlir::OpConversionPattern<SyncRawRwLockWriteUnlockFastOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  mlir::LogicalResult
+  matchAndRewrite(SyncRawRwLockWriteUnlockFastOp op, OpAdaptor adaptor,
+                  mlir::ConversionPatternRewriter &rewriter) const override {
+    auto &converter =
+        *static_cast<const mlir::LLVMTypeConverter *>(getTypeConverter());
+    auto loc = op.getLoc();
+    auto rawRwLockType = converter.convertType(
+        llvm::cast<mlir::MemRefType>(op.getRwlock().getType()).getElementType());
+    if (!rawRwLockType)
+      return rewriter.notifyMatchFailure(op, "failed to convert raw rwlock type");
+    auto ptr = getRawRwLockPointer(op, adaptor, converter, rewriter);
+    auto statePtr = getRawRwLockStatePointer(loc, ptr, rawRwLockType, rewriter);
+    auto writeLocked = createI32Constant(loc, kRwLockWriteLocked, rewriter);
+    auto previous = mlir::LLVM::AtomicRMWOp::create(
+        rewriter, loc, mlir::LLVM::AtomicBinOp::sub, statePtr, writeLocked,
+        mlir::LLVM::AtomicOrdering::release);
+    auto state = mlir::LLVM::SubOp::create(rewriter, loc, previous.getResult(),
+                                           writeLocked);
+    rewriter.replaceOp(op, state.getResult());
+    return mlir::success();
+  }
+};
+
 struct MutexGetRawMutexLowering
     : public mlir::OpConversionPattern<SyncMutexGetRawMutexOp> {
   using OpConversionPattern::OpConversionPattern;
@@ -248,6 +408,63 @@ struct MutexGetPayloadLowering
                         rewriter);
     auto payloadPtr = getMutexFieldPointer(op.getLoc(), mutexPtr,
                                            mutexElementType, /*field=*/1,
+                                           rewriter);
+    auto descriptor = mlir::MemRefDescriptor::fromStaticShape(
+        rewriter, op.getLoc(), converter, payloadType, payloadPtr);
+    rewriter.replaceOp(op, mlir::Value(descriptor));
+    return mlir::success();
+  }
+};
+
+struct RwLockGetRawRwLockLowering
+    : public mlir::OpConversionPattern<SyncRwLockGetRawRwLockOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  mlir::LogicalResult
+  matchAndRewrite(SyncRwLockGetRawRwLockOp op, OpAdaptor adaptor,
+                  mlir::ConversionPatternRewriter &rewriter) const override {
+    auto &converter =
+        *static_cast<const mlir::LLVMTypeConverter *>(getTypeConverter());
+    auto rwlockType = llvm::cast<mlir::MemRefType>(op.getRwlock().getType());
+    auto rawRwLockType =
+        llvm::cast<mlir::MemRefType>(op.getRawRwLock().getType());
+    auto rwlockElementType = converter.convertType(rwlockType.getElementType());
+    if (!rwlockElementType)
+      return rewriter.notifyMatchFailure(op, "failed to convert rwlock type");
+
+    auto rwlockPtr =
+        getMutexPointer(adaptor.getRwlock(), rwlockType, converter, op.getLoc(),
+                        rewriter);
+    auto rawRwLockPtr = getMutexFieldPointer(op.getLoc(), rwlockPtr,
+                                             rwlockElementType, /*field=*/0,
+                                             rewriter);
+    auto descriptor = mlir::MemRefDescriptor::fromStaticShape(
+        rewriter, op.getLoc(), converter, rawRwLockType, rawRwLockPtr);
+    rewriter.replaceOp(op, mlir::Value(descriptor));
+    return mlir::success();
+  }
+};
+
+struct RwLockGetPayloadLowering
+    : public mlir::OpConversionPattern<SyncRwLockGetPayloadOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  mlir::LogicalResult
+  matchAndRewrite(SyncRwLockGetPayloadOp op, OpAdaptor adaptor,
+                  mlir::ConversionPatternRewriter &rewriter) const override {
+    auto &converter =
+        *static_cast<const mlir::LLVMTypeConverter *>(getTypeConverter());
+    auto rwlockType = llvm::cast<mlir::MemRefType>(op.getRwlock().getType());
+    auto payloadType = llvm::cast<mlir::MemRefType>(op.getPayload().getType());
+    auto rwlockElementType = converter.convertType(rwlockType.getElementType());
+    if (!rwlockElementType)
+      return rewriter.notifyMatchFailure(op, "failed to convert rwlock type");
+
+    auto rwlockPtr =
+        getMutexPointer(adaptor.getRwlock(), rwlockType, converter, op.getLoc(),
+                        rewriter);
+    auto payloadPtr = getMutexFieldPointer(op.getLoc(), rwlockPtr,
+                                           rwlockElementType, /*field=*/1,
                                            rewriter);
     auto descriptor = mlir::MemRefDescriptor::fromStaticShape(
         rewriter, op.getLoc(), converter, payloadType, payloadPtr);
@@ -601,8 +818,12 @@ void configureConvertSyncToLLVMConversionLegality(
 void populateConvertSyncToLLVMConversionPatterns(
     mlir::LLVMTypeConverter &converter, mlir::RewritePatternSet &patterns) {
   patterns.add<RawMutexInitLowering, RawMutexTryLockLowering,
-               RawMutexUnlockFastLowering, MutexGetRawMutexLowering,
-               MutexGetPayloadLowering, CombiningLockInitLowering,
+               RawMutexUnlockFastLowering, RawRwLockInitLowering,
+               RawRwLockLoadStateLowering, RawRwLockCmpxchgStateLowering,
+               RawRwLockReadUnlockFastLowering,
+               RawRwLockWriteUnlockFastLowering, MutexGetRawMutexLowering,
+               MutexGetPayloadLowering, RwLockGetRawRwLockLowering,
+               RwLockGetPayloadLowering, CombiningLockInitLowering,
                CombiningLockHasTailLowering, CombiningLockTryAcquireLowering,
                CombiningLockReleaseLowering,
                CombiningLockGetPayloadLowering, CombiningLockCaptureLowering,

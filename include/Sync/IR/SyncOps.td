@@ -12,8 +12,14 @@ class SyncOp<string mnemonic, list<Trait> traits = []>
 class SyncRawMutexOp<string mnemonic, list<Trait> traits = []>
     : SyncOp<"raw_mutex." # mnemonic, traits>;
 
+class SyncRawRwLockOp<string mnemonic, list<Trait> traits = []>
+    : SyncOp<"raw_rwlock." # mnemonic, traits>;
+
 class SyncMutexOp<string mnemonic, list<Trait> traits = []>
     : SyncOp<"mutex." # mnemonic, traits>;
+
+class SyncRwLockOp<string mnemonic, list<Trait> traits = []>
+    : SyncOp<"rwlock." # mnemonic, traits>;
 
 class SyncCombiningLockOp<string mnemonic, list<Trait> traits = []>
     : SyncOp<"combining_lock." # mnemonic, traits>;
@@ -88,7 +94,155 @@ def SyncRawMutexUnlockOp : SyncRawMutexOp<"unlock"> {
   let hasVerifier = 1;
 }
 
+def SyncRawRwLockInitOp : SyncRawRwLockOp<"init"> {
+  let summary = "Initialize a raw rwlock";
+  let description = [{
+    `sync.raw_rwlock.init` initializes a zero-ranked memref containing a
+    `!sync.raw_rwlock` to the unlocked state.
+  }];
+  let arguments = (ins MemRefRankOf<[AnyType], [0]>:$rwlock);
+  let assemblyFormat = "$rwlock attr-dict `:` type($rwlock)";
+  let hasVerifier = 1;
+}
+
+def SyncRawRwLockLoadStateOp : SyncRawRwLockOp<"load_state"> {
+  let summary = "Load the raw rwlock state word";
+  let description = [{
+    `sync.raw_rwlock.load_state` is an internal helper that loads the primary
+    rwlock state word used by the fast path state machine.
+  }];
+  let arguments = (ins MemRefRankOf<[AnyType], [0]>:$rwlock);
+  let results = (outs I32:$state);
+  let assemblyFormat = "$rwlock attr-dict `:` type($rwlock)";
+  let hasVerifier = 1;
+}
+
+def SyncRawRwLockCmpxchgStateOp : SyncRawRwLockOp<"cmpxchg_state"> {
+  let summary = "Compare-exchange the raw rwlock state word";
+  let description = [{
+    `sync.raw_rwlock.cmpxchg_state` is an internal helper that performs the
+    acquire/monotonic compare-exchange used by the rwlock fast paths and
+    returns whether it succeeded.
+  }];
+  let arguments = (ins MemRefRankOf<[AnyType], [0]>:$rwlock,
+                       I32:$expected,
+                       I32:$desired);
+  let results = (outs I1:$success);
+  let assemblyFormat =
+      "$rwlock `,` $expected `,` $desired attr-dict `:` type($rwlock)";
+  let hasVerifier = 1;
+}
+
+def SyncRawRwLockTryReadLockOp : SyncRawRwLockOp<"try_read_lock"> {
+  let summary = "Try to acquire a raw rwlock for reading";
+  let description = [{
+    `sync.raw_rwlock.try_read_lock` attempts to acquire a shared read lock and
+    returns `true` on success.
+  }];
+  let arguments = (ins MemRefRankOf<[AnyType], [0]>:$rwlock);
+  let results = (outs I1:$acquired);
+  let assemblyFormat = "$rwlock attr-dict `:` type($rwlock)";
+  let hasVerifier = 1;
+}
+
+def SyncRawRwLockReadLockOp : SyncRawRwLockOp<"read_lock"> {
+  let summary = "Acquire a raw rwlock for reading";
+  let description = [{
+    `sync.raw_rwlock.read_lock` acquires a raw rwlock for shared read access,
+    using the runtime slow path when contention is observed.
+  }];
+  let arguments = (ins MemRefRankOf<[AnyType], [0]>:$rwlock);
+  let assemblyFormat = "$rwlock attr-dict `:` type($rwlock)";
+  let hasVerifier = 1;
+}
+
+def SyncRawRwLockReadUnlockFastOp : SyncRawRwLockOp<"read_unlock_fast"> {
+  let summary = "Release one raw rwlock read lock fast path";
+  let description = [{
+    `sync.raw_rwlock.read_unlock_fast` performs the atomic fast path for
+    releasing one read lock and returns the post-unlock state word needed by
+    the wrapper slow path.
+  }];
+  let arguments = (ins MemRefRankOf<[AnyType], [0]>:$rwlock);
+  let results = (outs I32:$state);
+  let assemblyFormat = "$rwlock attr-dict `:` type($rwlock)";
+  let hasVerifier = 1;
+}
+
+def SyncRawRwLockReadUnlockOp : SyncRawRwLockOp<"read_unlock"> {
+  let summary = "Release one raw rwlock read lock";
+  let description = [{
+    `sync.raw_rwlock.read_unlock` releases one held read lock and dispatches to
+    the runtime slow path when wake-up is required.
+  }];
+  let arguments = (ins MemRefRankOf<[AnyType], [0]>:$rwlock);
+  let assemblyFormat = "$rwlock attr-dict `:` type($rwlock)";
+  let hasVerifier = 1;
+}
+
+def SyncRawRwLockTryWriteLockOp : SyncRawRwLockOp<"try_write_lock"> {
+  let summary = "Try to acquire a raw rwlock for writing";
+  let description = [{
+    `sync.raw_rwlock.try_write_lock` attempts to acquire an exclusive write lock
+    and returns `true` on success.
+  }];
+  let arguments = (ins MemRefRankOf<[AnyType], [0]>:$rwlock);
+  let results = (outs I1:$acquired);
+  let assemblyFormat = "$rwlock attr-dict `:` type($rwlock)";
+  let hasVerifier = 1;
+}
+
+def SyncRawRwLockWriteLockOp : SyncRawRwLockOp<"write_lock"> {
+  let summary = "Acquire a raw rwlock for writing";
+  let description = [{
+    `sync.raw_rwlock.write_lock` acquires a raw rwlock for exclusive write
+    access, using the runtime slow path when contention is observed.
+  }];
+  let arguments = (ins MemRefRankOf<[AnyType], [0]>:$rwlock);
+  let assemblyFormat = "$rwlock attr-dict `:` type($rwlock)";
+  let hasVerifier = 1;
+}
+
+def SyncRawRwLockWriteUnlockFastOp : SyncRawRwLockOp<"write_unlock_fast"> {
+  let summary = "Release a raw rwlock write lock fast path";
+  let description = [{
+    `sync.raw_rwlock.write_unlock_fast` performs the atomic fast path for
+    releasing the write lock and returns the post-unlock state word needed by
+    the wrapper slow path.
+  }];
+  let arguments = (ins MemRefRankOf<[AnyType], [0]>:$rwlock);
+  let results = (outs I32:$state);
+  let assemblyFormat = "$rwlock attr-dict `:` type($rwlock)";
+  let hasVerifier = 1;
+}
+
+def SyncRawRwLockWriteUnlockOp : SyncRawRwLockOp<"write_unlock"> {
+  let summary = "Release a raw rwlock write lock";
+  let description = [{
+    `sync.raw_rwlock.write_unlock` releases the write lock and dispatches to
+    the runtime slow path when wake-up is required.
+  }];
+  let arguments = (ins MemRefRankOf<[AnyType], [0]>:$rwlock);
+  let assemblyFormat = "$rwlock attr-dict `:` type($rwlock)";
+  let hasVerifier = 1;
+}
+
+def SyncRwLockInitOp : SyncRwLockOp<"init"> {
+  let summary = "Initialize a typed rwlock";
+  let description = [{
+    `sync.rwlock.init` initializes the raw rwlock header of a zero-ranked
+    memref containing `!sync.rwlock<T>` and optionally stores an initial
+    payload value.
+  }];
+  let arguments = (ins MemRefRankOf<[AnyType], [0]>:$rwlock,
+                       Optional<AnyType>:$initialValue);
+  let assemblyFormat = "$rwlock attr-dict `:` type($rwlock) (`,` $initialValue^ `:` type($initialValue))?";
+  let hasVerifier = 1;
+}
+
 def SyncYieldOp : SyncOp<"yield", [ParentOneOf<["SyncMutexCriticalSectionOp",
+                                                "SyncRwLockReadCriticalSectionOp",
+                                                "SyncRwLockWriteCriticalSectionOp",
                                                 "SyncCombiningLockCriticalSectionOp"]>,
                                    Terminator]> {
   let summary = "Terminate a sync region";
@@ -126,6 +280,30 @@ def SyncMutexGetPayloadOp : SyncMutexOp<"get_payload"> {
   let hasVerifier = 1;
 }
 
+def SyncRwLockGetRawRwLockOp : SyncRwLockOp<"get_raw_rwlock"> {
+  let summary = "Project the raw rwlock header";
+  let description = [{
+    `sync.rwlock.get_raw_rwlock` projects a zero-ranked memref containing
+    `!sync.rwlock<T>` to a zero-ranked memref containing the raw rwlock header.
+  }];
+  let arguments = (ins MemRefRankOf<[AnyType], [0]>:$rwlock);
+  let results = (outs MemRefRankOf<[AnyType], [0]>:$rawRwLock);
+  let assemblyFormat = "$rwlock attr-dict `:` type($rwlock) `->` type($rawRwLock)";
+  let hasVerifier = 1;
+}
+
+def SyncRwLockGetPayloadOp : SyncRwLockOp<"get_payload"> {
+  let summary = "Project the inline payload";
+  let description = [{
+    `sync.rwlock.get_payload` projects a zero-ranked memref containing
+    `!sync.rwlock<T>` to a zero-ranked memref containing the payload `T`.
+  }];
+  let arguments = (ins MemRefRankOf<[AnyType], [0]>:$rwlock);
+  let results = (outs MemRefRankOf<[AnyType], [0]>:$payload);
+  let assemblyFormat = "$rwlock attr-dict `:` type($rwlock) `->` type($payload)";
+  let hasVerifier = 1;
+}
+
 def SyncMutexCriticalSectionOp : SyncMutexOp<"critical_section", [
       RecursiveMemoryEffects,
       SingleBlockImplicitTerminator<"SyncYieldOp">
@@ -139,6 +317,42 @@ def SyncMutexCriticalSectionOp : SyncMutexOp<"critical_section", [
   let results = (outs Variadic<AnyType>:$results);
   let regions = (region SizedRegion<1>:$body);
   let assemblyFormat = "$mutex attr-dict `:` type($mutex) (`->` type($results)^)? regions";
+  let hasVerifier = 1;
+  let hasRegionVerifier = 1;
+}
+
+def SyncRwLockReadCriticalSectionOp : SyncRwLockOp<"read_critical_section", [
+      RecursiveMemoryEffects,
+      SingleBlockImplicitTerminator<"SyncYieldOp">
+    ]> {
+  let summary = "Execute a read critical section over an rwlock payload";
+  let description = [{
+    `sync.rwlock.read_critical_section` acquires the rwlock for reading,
+    executes the region with a zero-ranked memref to the payload, and releases
+    the read lock on exit.
+  }];
+  let arguments = (ins MemRefRankOf<[AnyType], [0]>:$rwlock);
+  let results = (outs Variadic<AnyType>:$results);
+  let regions = (region SizedRegion<1>:$body);
+  let assemblyFormat = "$rwlock attr-dict `:` type($rwlock) (`->` type($results)^)? regions";
+  let hasVerifier = 1;
+  let hasRegionVerifier = 1;
+}
+
+def SyncRwLockWriteCriticalSectionOp : SyncRwLockOp<"write_critical_section", [
+      RecursiveMemoryEffects,
+      SingleBlockImplicitTerminator<"SyncYieldOp">
+    ]> {
+  let summary = "Execute a write critical section over an rwlock payload";
+  let description = [{
+    `sync.rwlock.write_critical_section` acquires the rwlock for writing,
+    executes the region with a zero-ranked memref to the payload, and releases
+    the write lock on exit.
+  }];
+  let arguments = (ins MemRefRankOf<[AnyType], [0]>:$rwlock);
+  let results = (outs Variadic<AnyType>:$results);
+  let regions = (region SizedRegion<1>:$body);
+  let assemblyFormat = "$rwlock attr-dict `:` type($rwlock) (`->` type($results)^)? regions";
   let hasVerifier = 1;
   let hasRegionVerifier = 1;
 }

@@ -299,6 +299,46 @@ impl Default for RwLock {
     }
 }
 
+#[unsafe(no_mangle)]
+#[cold]
+/// Continues a contended read lock operation from the C ABI surface.
+///
+/// # Safety
+///
+/// `rwlock` must be a valid, non-null pointer to a live [`RwLock`] previously
+/// initialized by this library. The pointed-to rwlock must remain valid for
+/// the duration of the call.
+pub unsafe extern "C" fn mlir_sync_rwlock_read_lock_slow_path(rwlock: *mut RwLock) {
+    unsafe { (*rwlock).read_contended() }
+}
+
+#[unsafe(no_mangle)]
+#[cold]
+/// Continues a contended write lock operation from the C ABI surface.
+///
+/// # Safety
+///
+/// `rwlock` must be a valid, non-null pointer to a live [`RwLock`] previously
+/// initialized by this library. The pointed-to rwlock must remain valid for
+/// the duration of the call.
+pub unsafe extern "C" fn mlir_sync_rwlock_write_lock_slow_path(rwlock: *mut RwLock) {
+    unsafe { (*rwlock).write_contended() }
+}
+
+#[unsafe(no_mangle)]
+#[cold]
+/// Wakes blocked readers or writers after a contended unlock from the C ABI
+/// surface.
+///
+/// # Safety
+///
+/// `rwlock` must be a valid, non-null pointer to a live [`RwLock`] previously
+/// initialized by this library. `state` must be the post-unlock state word
+/// that should be passed to [`RwLock::wake_writer_or_readers`].
+pub unsafe extern "C" fn mlir_sync_rwlock_unlock_slow_path(rwlock: *mut RwLock, state: u32) {
+    unsafe { (*rwlock).wake_writer_or_readers(state) }
+}
+
 #[cfg(test)]
 mod tests {
     extern crate std;

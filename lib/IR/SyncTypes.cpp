@@ -12,6 +12,15 @@ mlir::LogicalResult MutexType::verify(
   return mlir::success();
 }
 
+mlir::LogicalResult RwLockType::verify(
+    llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
+    mlir::Type valueType) {
+  if (!mlir::BaseMemRefType::isValidElementType(valueType))
+    return emitError()
+           << "rwlock payload type must be a valid memref element type";
+  return mlir::success();
+}
+
 mlir::LogicalResult CombiningLockType::verify(
     llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
     mlir::Type valueType) {
