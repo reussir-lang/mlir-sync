@@ -13,15 +13,7 @@ module {
     %c1_i64 = arith.constant 1 : i64
 
     %mutex = memref.alloca() : memref<!sync.mutex<i64>>
-    %raw_mutex = sync.mutex.get_raw_mutex %mutex
-      : memref<!sync.mutex<i64>> -> memref<!sync.raw_mutex>
-    sync.raw_mutex.init %raw_mutex : memref<!sync.raw_mutex>
-
-    sync.mutex.critical_section %mutex : memref<!sync.mutex<i64>> {
-    ^bb0(%payload: memref<i64>):
-      memref.store %c0_i64, %payload[] : memref<i64>
-      sync.yield
-    }
+    sync.mutex.init %mutex : memref<!sync.mutex<i64>>, %c0_i64 : i64
 
     omp.parallel num_threads(%num_threads : i32) {
       scf.for %i = %c0 to %iters step %c1 {

@@ -15,6 +15,19 @@ class SyncRawMutexOp<string mnemonic, list<Trait> traits = []>
 class SyncMutexOp<string mnemonic, list<Trait> traits = []>
     : SyncOp<"mutex." # mnemonic, traits>;
 
+def SyncMutexInitOp : SyncMutexOp<"init"> {
+  let summary = "Initialize a typed mutex";
+  let description = [{
+    `sync.mutex.init` initializes the raw mutex header of a zero-ranked memref
+    containing `!sync.mutex<T>` to the unlocked state and optionally stores an
+    initial payload value.
+  }];
+  let arguments = (ins MemRefRankOf<[AnyType], [0]>:$mutex,
+                       Optional<AnyType>:$initialValue);
+  let assemblyFormat = "$mutex attr-dict `:` type($mutex) (`,` $initialValue^ `:` type($initialValue))?";
+  let hasVerifier = 1;
+}
+
 def SyncRawMutexInitOp : SyncRawMutexOp<"init"> {
   let summary = "Initialize a raw mutex";
   let description = [{

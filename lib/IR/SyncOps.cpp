@@ -61,6 +61,20 @@ mlir::LogicalResult SyncRawMutexInitOp::verify() {
   return verifyRawMutexMemRef(*this, getMutex().getType(), "mutex");
 }
 
+mlir::LogicalResult SyncMutexInitOp::verify() {
+  if (mlir::failed(verifyMutexMemRef(*this, getMutex().getType(), "mutex")))
+    return mlir::failure();
+
+  if (mlir::Value initialValue = getInitialValue()) {
+    auto mutexType = llvm::cast<mlir::MemRefType>(getMutex().getType());
+    auto payloadType = getPayloadProjectionType(mutexType).getElementType();
+    if (initialValue.getType() != payloadType)
+      return emitOpError() << "initial value type must be " << payloadType
+                           << ", got " << initialValue.getType();
+  }
+  return mlir::success();
+}
+
 mlir::LogicalResult SyncRawMutexTryLockOp::verify() {
   return verifyRawMutexMemRef(*this, getMutex().getType(), "mutex");
 }

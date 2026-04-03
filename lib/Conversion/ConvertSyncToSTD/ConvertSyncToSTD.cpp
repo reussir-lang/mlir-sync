@@ -102,6 +102,31 @@ struct RawMutexLockLowering : public mlir::OpRewritePattern<SyncRawMutexLockOp> 
   }
 };
 
+struct MutexInitLowering : public mlir::OpRewritePattern<SyncMutexInitOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  mlir::LogicalResult matchAndRewrite(
+      SyncMutexInitOp op, mlir::PatternRewriter &rewriter) const override {
+    auto loc = op.getLoc();
+    auto mutexType = llvm::cast<mlir::MemRefType>(op.getMutex().getType());
+    auto rawMutexType = getRawMutexProjectionType(mutexType);
+    auto rawMutex =
+        SyncMutexGetRawMutexOp::create(rewriter, loc, rawMutexType, op.getMutex())
+            .getResult();
+    SyncRawMutexInitOp::create(rewriter, loc, rawMutex);
+    if (mlir::Value initialValue = op.getInitialValue()) {
+      auto payloadType = getPayloadProjectionType(mutexType);
+      auto payload =
+          SyncMutexGetPayloadOp::create(rewriter, loc, payloadType, op.getMutex())
+              .getResult();
+      mlir::memref::StoreOp::create(rewriter, loc, initialValue, payload,
+                                    mlir::ValueRange{});
+    }
+    rewriter.eraseOp(op);
+    return mlir::success();
+  }
+};
+
 struct RawMutexUnlockLowering
     : public mlir::OpRewritePattern<SyncRawMutexUnlockOp> {
   using OpRewritePattern::OpRewritePattern;
@@ -175,7 +200,7 @@ struct MutexCriticalSectionLowering
 } // namespace
 
 void populateConvertSyncToSTDPatterns(mlir::RewritePatternSet &patterns) {
-  patterns.add<RawMutexLockLowering, RawMutexUnlockLowering,
+  patterns.add<MutexInitLowering, RawMutexLockLowering, RawMutexUnlockLowering,
                MutexCriticalSectionLowering>(
       patterns.getContext());
 }
