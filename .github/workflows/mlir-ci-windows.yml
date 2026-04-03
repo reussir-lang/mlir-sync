@@ -1,0 +1,73 @@
+name: MLIR CI (Windows)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-and-test:
+    runs-on: windows-2025
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Restore file timestamps
+        uses: chetan/git-restore-mtime-action@v2
+
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+
+      - name: Set up MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Install LLVM with winget
+        shell: pwsh
+        run: |
+          winget install --id LLVM.LLVM --silent --accept-package-agreements --accept-source-agreements --disable-interactivity
+          $llvmRoot = "C:\Program Files\LLVM"
+          $llvmBin = Join-Path $llvmRoot "bin"
+          $llvmDir = Join-Path $llvmRoot "lib\cmake\llvm"
+          $mlirDir = Join-Path $llvmRoot "lib\cmake\mlir"
+          $llvmBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          "LLVM_DIR=$llvmDir" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "MLIR_DIR=$mlirDir" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "LLVM_SYMBOLIZER_PATH=$llvmBin\llvm-symbolizer.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          python -m pip install lit
+
+      - name: Configure CMake
+        shell: pwsh
+        run: |
+          cmake -S . -B build -G Ninja `
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo `
+            -DCMAKE_C_COMPILER=clang-cl `
+            -DCMAKE_CXX_COMPILER=clang-cl `
+            -DSYNC_ENABLE_TESTS=ON `
+            -DLLVM_DIR="$env:LLVM_DIR" `
+            -DMLIR_DIR="$env:MLIR_DIR"
+
+      - name: Build
+        shell: pwsh
+        run: cmake --build build --parallel
+
+      - name: Run MLIR integration tests
+        shell: pwsh
+        run: cmake --build build --target check-sync --parallel
