@@ -34,7 +34,7 @@ mlir::func::FuncOp getOrCreateRuntimeFunc(mlir::Location loc,
   mlir::OpBuilder::InsertionGuard guard(rewriter);
   rewriter.setInsertionPointToStart(moduleOp.getBody());
   auto fnType = rewriter.getFunctionType(argumentType, resultTypes);
-  auto func = rewriter.create<mlir::func::FuncOp>(loc, name, fnType);
+  auto func = mlir::func::FuncOp::create(rewriter, loc, name, fnType);
   func.setPrivate();
   return func;
 }
@@ -57,9 +57,10 @@ mlir::Value materializeRuntimePtr(mlir::Location loc, mlir::Value mutex,
     auto castedType = mlir::MemRefType::get(
         memrefType.getShape(), memrefType.getElementType(), memrefType.getLayout(),
         ptrType.getMemorySpace());
-    mutex = rewriter.create<mlir::memref::MemorySpaceCastOp>(loc, castedType, mutex);
+    mutex =
+        mlir::memref::MemorySpaceCastOp::create(rewriter, loc, castedType, mutex);
   }
-  return rewriter.create<mlir::ptr::ToPtrOp>(loc, ptrType, mutex);
+  return mlir::ptr::ToPtrOp::create(rewriter, loc, ptrType, mutex);
 }
 
 struct RawMutexLockLowering : public mlir::OpRewritePattern<SyncRawMutexLockOp> {
@@ -73,16 +74,15 @@ struct RawMutexLockLowering : public mlir::OpRewritePattern<SyncRawMutexLockOp> 
     auto slowPathFunc =
         getOrCreateRuntimeFunc(loc, kLockSlowPath, ptrType, {}, moduleOp,
                                rewriter);
-    auto acquired = rewriter
-                        .create<SyncRawMutexTryLockOp>(loc, rewriter.getI1Type(),
-                                                       op.getMutex())
+    auto acquired = SyncRawMutexTryLockOp::create(rewriter, loc, rewriter.getI1Type(),
+                                                  op.getMutex())
                         .getResult();
-    auto ifOp = rewriter.create<mlir::scf::IfOp>(loc, acquired,
-                                                 /*withElseRegion=*/true);
+    auto ifOp = mlir::scf::IfOp::create(rewriter, loc, acquired,
+                                        /*withElseRegion=*/true);
 
     rewriter.setInsertionPointToStart(&ifOp.getElseRegion().front());
     auto ptr = materializeRuntimePtr(loc, op.getMutex(), ptrType, rewriter);
-    rewriter.create<mlir::func::CallOp>(loc, slowPathFunc, mlir::ValueRange{ptr});
+    mlir::func::CallOp::create(rewriter, loc, slowPathFunc, mlir::ValueRange{ptr});
 
     rewriter.eraseOp(op);
     return mlir::success();
@@ -101,18 +101,17 @@ struct RawMutexUnlockLowering
     auto unlockSlowFunc =
         getOrCreateRuntimeFunc(loc, kUnlockSlowPath, ptrType, {}, moduleOp,
                                rewriter);
-    auto needsWake =
-        rewriter
-            .create<SyncRawMutexUnlockFastOp>(loc, rewriter.getI1Type(),
-                                              op.getMutex())
-            .getResult();
-    auto ifOp = rewriter.create<mlir::scf::IfOp>(loc, needsWake,
-                                                 /*withElseRegion=*/false);
+    auto needsWake = SyncRawMutexUnlockFastOp::create(rewriter, loc,
+                                                      rewriter.getI1Type(),
+                                                      op.getMutex())
+                         .getResult();
+    auto ifOp = mlir::scf::IfOp::create(rewriter, loc, needsWake,
+                                        /*withElseRegion=*/false);
 
     rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
     auto slowPathPtr = materializeRuntimePtr(loc, op.getMutex(), ptrType, rewriter);
-    rewriter.create<mlir::func::CallOp>(loc, unlockSlowFunc,
-                                        mlir::ValueRange{slowPathPtr});
+    mlir::func::CallOp::create(rewriter, loc, unlockSlowFunc,
+                               mlir::ValueRange{slowPathPtr});
 
     rewriter.eraseOp(op);
     return mlir::success();

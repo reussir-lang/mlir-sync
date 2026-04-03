@@ -30,8 +30,8 @@ constexpr uint64_t kContendedState = 2;
 
 mlir::Value createI32Constant(mlir::Location loc, uint64_t value,
                               mlir::ConversionPatternRewriter &rewriter) {
-  return rewriter.create<mlir::LLVM::ConstantOp>(
-      loc, rewriter.getI32Type(), rewriter.getI32IntegerAttr(value));
+  return mlir::LLVM::ConstantOp::create(rewriter, loc, rewriter.getI32Type(),
+                                        rewriter.getI32IntegerAttr(value));
 }
 
 template <typename OpTy>
@@ -53,7 +53,7 @@ struct RawMutexInitLowering
     auto &converter = *static_cast<const LLVMTypeConverter *>(getTypeConverter());
     auto ptr = getRawMutexPointer(op, adaptor, converter, rewriter);
     auto zero = createI32Constant(op.getLoc(), kUnlockedState, rewriter);
-    rewriter.create<mlir::LLVM::StoreOp>(op.getLoc(), zero, ptr);
+    mlir::LLVM::StoreOp::create(rewriter, op.getLoc(), zero, ptr);
     rewriter.eraseOp(op);
     return mlir::success();
   }
@@ -70,11 +70,12 @@ struct RawMutexTryLockLowering
     auto ptr = getRawMutexPointer(op, adaptor, converter, rewriter);
     auto zero = createI32Constant(op.getLoc(), kUnlockedState, rewriter);
     auto one = createI32Constant(op.getLoc(), kLockedState, rewriter);
-    auto cmpxchg = rewriter.create<mlir::LLVM::AtomicCmpXchgOp>(
-        op.getLoc(), ptr, zero, one, mlir::LLVM::AtomicOrdering::acquire,
+    auto cmpxchg = mlir::LLVM::AtomicCmpXchgOp::create(
+        rewriter, op.getLoc(), ptr, zero, one,
+        mlir::LLVM::AtomicOrdering::acquire,
         mlir::LLVM::AtomicOrdering::monotonic);
-    auto acquired = rewriter.create<mlir::LLVM::ExtractValueOp>(
-        op.getLoc(), rewriter.getI1Type(), cmpxchg.getResult(),
+    auto acquired = mlir::LLVM::ExtractValueOp::create(
+        rewriter, op.getLoc(), rewriter.getI1Type(), cmpxchg.getResult(),
         llvm::ArrayRef<int64_t>{1});
     rewriter.replaceOp(op, acquired.getResult());
     return mlir::success();
@@ -93,11 +94,12 @@ struct RawMutexUnlockFastLowering
     auto ptr = getRawMutexPointer(op, adaptor, converter, rewriter);
     auto zero = createI32Constant(loc, kUnlockedState, rewriter);
     auto contended = createI32Constant(loc, kContendedState, rewriter);
-    auto previous = rewriter.create<mlir::LLVM::AtomicRMWOp>(
-        loc, mlir::LLVM::AtomicBinOp::xchg, ptr, zero,
+    auto previous = mlir::LLVM::AtomicRMWOp::create(
+        rewriter, loc, mlir::LLVM::AtomicBinOp::xchg, ptr, zero,
         mlir::LLVM::AtomicOrdering::release);
-    auto wasContended = rewriter.create<mlir::LLVM::ICmpOp>(
-        loc, mlir::LLVM::ICmpPredicate::eq, previous.getResult(), contended);
+    auto wasContended = mlir::LLVM::ICmpOp::create(
+        rewriter, loc, mlir::LLVM::ICmpPredicate::eq, previous.getResult(),
+        contended);
     rewriter.replaceOp(op, wasContended.getResult());
     return mlir::success();
   }
