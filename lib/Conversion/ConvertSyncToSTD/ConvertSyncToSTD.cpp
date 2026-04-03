@@ -372,28 +372,47 @@ struct CombiningLockCriticalSectionLowering
     auto payload = SyncCombiningLockGetPayloadOp::create(rewriter, loc, payloadType,
                                                          op.getLock())
                        .getResult(0);
+    auto trueValue =
+        mlir::arith::ConstantIntOp::create(rewriter, loc, 1, 1).getResult();
+    auto falseValue =
+        mlir::arith::ConstantIntOp::create(rewriter, loc, 0, 1).getResult();
     auto hasTail = SyncCombiningLockHasTailOp::create(
                        rewriter, loc, rewriter.getI1Type(), op.getLock())
                        .getResult();
-    auto outerIf =
-        mlir::scf::IfOp::create(rewriter, loc, hasTail, /*withElseRegion=*/true);
+    auto shouldSlowPath = mlir::scf::IfOp::create(
+        rewriter, loc, mlir::TypeRange{rewriter.getI1Type()}, hasTail,
+        /*withElseRegion=*/true);
 
-    rewriter.setInsertionPoint(outerIf.thenBlock()->getTerminator());
-    emitCombiningLockSlowPath(op, payload, captures, wrapper, moduleOp, rewriter);
+    rewriter.setInsertionPointToStart(shouldSlowPath.thenBlock());
+    mlir::scf::YieldOp::create(rewriter, loc, trueValue);
 
-    rewriter.setInsertionPoint(outerIf.elseBlock()->getTerminator());
+    rewriter.setInsertionPointToStart(shouldSlowPath.elseBlock());
     auto acquired = SyncCombiningLockTryAcquireOp::create(
                         rewriter, loc, rewriter.getI1Type(), op.getLock())
                         .getResult();
-    auto innerIf =
-        mlir::scf::IfOp::create(rewriter, loc, acquired, /*withElseRegion=*/true);
+    auto innerIf = mlir::scf::IfOp::create(
+        rewriter, loc, mlir::TypeRange{rewriter.getI1Type()}, acquired,
+        /*withElseRegion=*/true);
 
-    rewriter.setInsertionPoint(innerIf.thenBlock()->getTerminator());
+    rewriter.setInsertionPointToStart(innerIf.thenBlock());
+    mlir::scf::YieldOp::create(rewriter, loc, falseValue);
+
+    rewriter.setInsertionPointToStart(innerIf.elseBlock());
+    mlir::scf::YieldOp::create(rewriter, loc, trueValue);
+
+    rewriter.setInsertionPointAfter(innerIf);
+    mlir::scf::YieldOp::create(rewriter, loc, innerIf.getResult(0));
+
+    rewriter.setInsertionPointAfter(shouldSlowPath);
+    auto dispatchIf = mlir::scf::IfOp::create(
+        rewriter, loc, shouldSlowPath.getResult(0), /*withElseRegion=*/true);
+
+    rewriter.setInsertionPoint(dispatchIf.thenBlock()->getTerminator());
+    emitCombiningLockSlowPath(op, payload, captures, wrapper, moduleOp, rewriter);
+
+    rewriter.setInsertionPoint(dispatchIf.elseBlock()->getTerminator());
     cloneCombiningLockBody(op, payload, rewriter);
     SyncCombiningLockReleaseOp::create(rewriter, loc, op.getLock());
-
-    rewriter.setInsertionPoint(innerIf.elseBlock()->getTerminator());
-    emitCombiningLockSlowPath(op, payload, captures, wrapper, moduleOp, rewriter);
 
     rewriter.eraseOp(op);
     return mlir::success();

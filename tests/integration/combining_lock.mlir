@@ -45,15 +45,22 @@ module {
 // STD: func.func private @__sync_combining_lock_slow_{{[0-9]+}}(%arg0: !ptr.ptr<#ptr.generic_space>) attributes {llvm.linkage = #llvm.linkage<internal>, no_inline, passthrough = ["cold"]}
 // STD: %[[RECOVERED_PAYLOAD:.+]]:3 = "sync.combining_lock.recover"(%{{.*}}) : (!ptr.ptr<#ptr.generic_space>) -> (memref<i64>, i32, i64)
 // STD-LABEL: func.func @combining_lock_capture_shape
-// STD: %[[PAYLOAD:.+]] = sync.combining_lock.get_payload %{{.*}} : memref<!sync.combining_lock<i64>> -> memref<i64>
+// STD-DAG: %[[PAYLOAD:.+]] = sync.combining_lock.get_payload %{{.*}} : memref<!sync.combining_lock<i64>> -> memref<i64>
+// STD-DAG: %[[TRUE:.+]] = arith.constant true
+// STD-DAG: %[[FALSE:.+]] = arith.constant false
 // STD: %[[HAS_TAIL:.+]] = sync.combining_lock.has_tail
-// STD: scf.if %[[HAS_TAIL]]
+// STD: %[[SHOULD_SLOW:.+]] = scf.if %[[HAS_TAIL]] -> (i1)
+// STD: scf.yield %[[TRUE]] : i1
 // STD: %[[TRY_ACQUIRE:.+]] = sync.combining_lock.try_acquire
-// STD: scf.if %[[TRY_ACQUIRE]]
-// STD: sync.combining_lock.release
+// STD: %[[NO_FAST_PATH:.+]] = scf.if %[[TRY_ACQUIRE]] -> (i1)
+// STD: scf.yield %[[FALSE]] : i1
+// STD: scf.yield %[[TRUE]] : i1
+// STD: scf.yield %[[NO_FAST_PATH]] : i1
+// STD: scf.if %[[SHOULD_SLOW]]
 // STD: %[[NODE:.+]], %[[RAW_NODE:.+]] = "sync.combining_lock.capture"(%{{.*}}, %[[PAYLOAD]], %arg0, %c1_i64) : ((!ptr.ptr<#ptr.generic_space>) -> (), memref<i64>, i32, i64) -> (memref<!sync.combining_lock_node<i32, i64>, #ptr.generic_space>, !ptr.ptr<#ptr.generic_space>)
 // STD: func.call @mlir_sync_combining_lock_attach_slow_path
 // STD: sync.combining_lock.capture_end %[[RAW_NODE]] : !ptr.ptr<#ptr.generic_space>
+// STD: sync.combining_lock.release
 
 // STD-LABEL: func.func @combining_lock_default_limit
 // STD: arith.constant -1 : i64
