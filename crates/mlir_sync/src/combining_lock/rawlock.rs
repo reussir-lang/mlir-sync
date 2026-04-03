@@ -39,22 +39,12 @@ impl RawLock {
             .is_ok()
     }
     pub fn try_acquire(&self) -> bool {
-        self.status
-            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
-            .is_ok()
+        !self.status.swap(true, Ordering::Acquire)
     }
     pub fn acquire(&self) {
-        loop {
-            match self
-                .status
-                .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
-            {
-                Ok(_) => return,
-                Err(_) => {
-                    while self.status.load(Ordering::Relaxed) {
-                        core::hint::spin_loop();
-                    }
-                }
+        while self.status.swap(true, Ordering::Acquire) {
+            while self.status.load(Ordering::Relaxed) {
+                core::hint::spin_loop();
             }
         }
     }

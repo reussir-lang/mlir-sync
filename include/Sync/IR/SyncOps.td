@@ -15,6 +15,9 @@ class SyncRawMutexOp<string mnemonic, list<Trait> traits = []>
 class SyncMutexOp<string mnemonic, list<Trait> traits = []>
     : SyncOp<"mutex." # mnemonic, traits>;
 
+class SyncCombiningLockOp<string mnemonic, list<Trait> traits = []>
+    : SyncOp<"combining_lock." # mnemonic, traits>;
+
 def SyncMutexInitOp : SyncMutexOp<"init"> {
   let summary = "Initialize a typed mutex";
   let description = [{
@@ -85,7 +88,8 @@ def SyncRawMutexUnlockOp : SyncRawMutexOp<"unlock"> {
   let hasVerifier = 1;
 }
 
-def SyncYieldOp : SyncOp<"yield", [HasParent<"SyncMutexCriticalSectionOp">,
+def SyncYieldOp : SyncOp<"yield", [ParentOneOf<["SyncMutexCriticalSectionOp",
+                                                "SyncCombiningLockCriticalSectionOp"]>,
                                    Terminator]> {
   let summary = "Terminate a sync region";
   let description = [{
@@ -135,6 +139,123 @@ def SyncMutexCriticalSectionOp : SyncMutexOp<"critical_section", [
   let results = (outs Variadic<AnyType>:$results);
   let regions = (region SizedRegion<1>:$body);
   let assemblyFormat = "$mutex attr-dict `:` type($mutex) (`->` type($results)^)? regions";
+  let hasVerifier = 1;
+  let hasRegionVerifier = 1;
+}
+
+def SyncCombiningLockInitOp : SyncCombiningLockOp<"init"> {
+  let summary = "Initialize a combining lock";
+  let description = [{
+    `sync.combining_lock.init` initializes a zero-ranked memref containing
+    `!sync.combining_lock<T>` and optionally stores an initial payload value.
+  }];
+  let arguments = (ins MemRefRankOf<[AnyType], [0]>:$lock,
+                       Optional<AnyType>:$initialValue);
+  let assemblyFormat = "$lock attr-dict `:` type($lock) (`,` $initialValue^ `:` type($initialValue))?";
+  let hasVerifier = 1;
+}
+
+def SyncCombiningLockHasTailOp
+    : SyncCombiningLockOp<"has_tail"> {
+  let summary = "Check whether the combining lock has a tail";
+  let description = [{
+    `sync.combining_lock.has_tail` returns true when the runtime tail pointer is
+    non-null.
+  }];
+  let arguments = (ins MemRefRankOf<[AnyType], [0]>:$lock);
+  let results = (outs I1:$hasTail);
+  let assemblyFormat = "$lock attr-dict `:` type($lock)";
+  let hasVerifier = 1;
+}
+
+def SyncCombiningLockTryAcquireOp
+    : SyncCombiningLockOp<"try_acquire"> {
+  let summary = "Attempt to acquire the combining lock status bit";
+  let description = [{
+    `sync.combining_lock.try_acquire` performs the acquire test-and-set on the
+    runtime status flag and returns true on success.
+  }];
+  let arguments = (ins MemRefRankOf<[AnyType], [0]>:$lock);
+  let results = (outs I1:$acquired);
+  let assemblyFormat = "$lock attr-dict `:` type($lock)";
+  let hasVerifier = 1;
+}
+
+def SyncCombiningLockReleaseOp : SyncCombiningLockOp<"release"> {
+  let summary = "Release a combining lock fast path";
+  let description = [{
+    `sync.combining_lock.release` stores `false` into the lock status with
+    release ordering.
+  }];
+  let arguments = (ins MemRefRankOf<[AnyType], [0]>:$lock);
+  let assemblyFormat = "$lock attr-dict `:` type($lock)";
+  let hasVerifier = 1;
+}
+
+def SyncCombiningLockGetPayloadOp : SyncCombiningLockOp<"get_payload"> {
+  let summary = "Project a combining lock or node payload";
+  let description = [{
+    `sync.combining_lock.get_payload` projects either a combining lock payload
+    or the payload-plus-capture tuple materialized in a slow-path node.
+  }];
+  let arguments = (ins MemRefRankOf<[AnyType], [0]>:$source);
+  let results = (outs Variadic<AnyType>:$results);
+  let assemblyFormat = "$source attr-dict `:` type($source) `->` type($results)";
+  let hasVerifier = 1;
+}
+
+def SyncCombiningLockRecoverOp : SyncCombiningLockOp<"recover"> {
+  let summary = "Recover payload and captures from a raw slow-path node pointer";
+  let description = [{
+    `sync.combining_lock.recover` is an internal helper used by outlined
+    slow-path wrappers to reconstruct the payload memref and captured SSA values
+    from the raw callback pointer.
+  }];
+  let arguments = (ins AnyType:$node);
+  let results = (outs Variadic<AnyType>:$results);
+  let hasVerifier = 1;
+}
+
+def SyncCombiningLockCaptureOp : SyncCombiningLockOp<"capture"> {
+  let summary = "Materialize a combining lock slow-path node";
+  let description = [{
+    `sync.combining_lock.capture` creates a stack-allocated slow-path node that
+    stores a callback, a payload pointer, and the captured SSA values. It
+    returns both a zero-ranked memref view of the node and the raw stack pointer
+    so the lifetime can be ended on the original allocation value.
+  }];
+  let arguments = (ins AnyType:$callee,
+                       MemRefRankOf<[AnyType], [0]>:$payload,
+                       Variadic<AnyType>:$captures);
+  let results = (outs MemRefRankOf<[AnyType], [0]>:$node,
+                      AnyType:$rawNode);
+  let hasVerifier = 1;
+}
+
+def SyncCombiningLockCaptureEndOp : SyncCombiningLockOp<"capture_end"> {
+  let summary = "End the lifetime of a captured slow-path node";
+  let description = [{
+    `sync.combining_lock.capture_end` is an internal helper that marks the end
+    of the stack lifetime created by `sync.combining_lock.capture`.
+  }];
+  let arguments = (ins AnyType:$rawNode);
+  let assemblyFormat = "$rawNode attr-dict `:` type($rawNode)";
+  let hasVerifier = 1;
+}
+
+def SyncCombiningLockCriticalSectionOp : SyncCombiningLockOp<"critical_section", [
+      RecursiveMemoryEffects,
+      SingleBlockImplicitTerminator<"SyncYieldOp">
+    ]> {
+  let summary = "Execute a combining-lock critical section";
+  let description = [{
+    `sync.combining_lock.critical_section` tries the combining-lock fast path
+    inline and outlines a slow-path callback when contention is observed.
+  }];
+  let arguments = (ins MemRefRankOf<[AnyType], [0]>:$lock,
+                       OptionalAttr<I64Attr>:$combine_limit);
+  let regions = (region SizedRegion<1>:$body);
+  let assemblyFormat = "$lock attr-dict `:` type($lock) regions";
   let hasVerifier = 1;
   let hasRegionVerifier = 1;
 }

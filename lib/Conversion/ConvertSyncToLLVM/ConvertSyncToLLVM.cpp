@@ -29,11 +29,29 @@ namespace {
 constexpr uint64_t kUnlockedState = 0;
 constexpr uint64_t kLockedState = 1;
 constexpr uint64_t kContendedState = 2;
+constexpr uint64_t kCombiningNodeWaiting = 0;
 
 mlir::Value createI32Constant(mlir::Location loc, uint64_t value,
                               mlir::ConversionPatternRewriter &rewriter) {
   return mlir::LLVM::ConstantOp::create(rewriter, loc, rewriter.getI32Type(),
                                         rewriter.getI32IntegerAttr(value));
+}
+
+mlir::Value createI8Constant(mlir::Location loc, uint64_t value,
+                             mlir::ConversionPatternRewriter &rewriter) {
+  return mlir::LLVM::ConstantOp::create(rewriter, loc,
+                                        mlir::IntegerType::get(rewriter.getContext(), 8),
+                                        rewriter.getI8IntegerAttr(value));
+}
+
+mlir::Value createI64Constant(mlir::Location loc, uint64_t value,
+                              mlir::ConversionPatternRewriter &rewriter) {
+  return mlir::LLVM::ConstantOp::create(rewriter, loc, rewriter.getI64Type(),
+                                        rewriter.getI64IntegerAttr(value));
+}
+
+mlir::Type getOpaquePtrType(mlir::MLIRContext *context) {
+  return mlir::LLVM::LLVMPointerType::get(context);
 }
 
 template <typename OpTy>
@@ -60,6 +78,61 @@ mlir::Value getMutexFieldPointer(mlir::Location loc, mlir::Value mutexPtr,
   return mlir::LLVM::GEPOp::create(rewriter, loc, mutexPtr.getType(),
                                    mutexElementType, mutexPtr, indices)
       .getResult();
+}
+
+mlir::Value getCombiningLockFieldPointer(mlir::Location loc, mlir::Value lockPtr,
+                                         mlir::Type lockElementType,
+                                         llvm::ArrayRef<int32_t> indices,
+                                         mlir::ConversionPatternRewriter &rewriter) {
+  llvm::SmallVector<mlir::LLVM::GEPArg> gepIndices;
+  gepIndices.reserve(indices.size());
+  for (int32_t index : indices)
+    gepIndices.push_back(index);
+  return mlir::LLVM::GEPOp::create(rewriter, loc, lockPtr.getType(),
+                                   lockElementType, lockPtr, gepIndices)
+      .getResult();
+}
+
+template <typename OpTy>
+mlir::Value getCombiningLockPointer(OpTy op, mlir::Value lock,
+                                    const mlir::LLVMTypeConverter &converter,
+                                    mlir::ConversionPatternRewriter &rewriter) {
+  auto memrefType = llvm::cast<mlir::MemRefType>(op.getLock().getType());
+  return mlir::LLVM::getStridedElementPtr(rewriter, op.getLoc(), converter,
+                                          memrefType, lock, {});
+}
+
+mlir::Value getNodePointer(mlir::Operation *op, mlir::Value node,
+                           mlir::MemRefType nodeType,
+                           const mlir::LLVMTypeConverter &converter,
+                           mlir::ConversionPatternRewriter &rewriter) {
+  return mlir::LLVM::getStridedElementPtr(rewriter, op->getLoc(), converter,
+                                          nodeType, node, {});
+}
+
+mlir::Value buildStaticZeroRankMemRef(mlir::Location loc,
+                                      const mlir::LLVMTypeConverter &converter,
+                                      mlir::MemRefType memrefType,
+                                      mlir::Value ptr,
+                                      mlir::ConversionPatternRewriter &rewriter) {
+  auto descriptor = mlir::MemRefDescriptor::fromStaticShape(
+      rewriter, loc, converter, memrefType, ptr);
+  return mlir::Value(descriptor);
+}
+
+mlir::Type getCombiningNodeLLVMTypeForCaptures(
+    const mlir::LLVMTypeConverter &converter,
+    mlir::MLIRContext *context, mlir::TypeRange captureTypes) {
+  llvm::SmallVector<mlir::Type> fields{
+      mlir::IntegerType::get(context, 32), getOpaquePtrType(context),
+      getOpaquePtrType(context), getOpaquePtrType(context)};
+  for (mlir::Type captureType : captureTypes) {
+    mlir::Type loweredCapture = converter.convertType(captureType);
+    if (!loweredCapture)
+      return {};
+    fields.push_back(loweredCapture);
+  }
+  return mlir::LLVM::LLVMStructType::getLiteral(context, fields);
 }
 
 struct RawMutexInitLowering
@@ -183,6 +256,341 @@ struct MutexGetPayloadLowering
   }
 };
 
+struct CombiningLockInitLowering
+    : public mlir::OpConversionPattern<SyncCombiningLockInitOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  mlir::LogicalResult
+  matchAndRewrite(SyncCombiningLockInitOp op, OpAdaptor adaptor,
+                  mlir::ConversionPatternRewriter &rewriter) const override {
+    auto &converter =
+        *static_cast<const mlir::LLVMTypeConverter *>(getTypeConverter());
+    auto lockType = llvm::cast<mlir::MemRefType>(op.getLock().getType());
+    auto lockElementType = converter.convertType(lockType.getElementType());
+    if (!lockElementType)
+      return rewriter.notifyMatchFailure(op, "failed to convert combining lock");
+
+    auto lockPtr = getCombiningLockPointer(op, adaptor.getLock(), converter, rewriter);
+    auto nullPtr = mlir::LLVM::ZeroOp::create(rewriter, op.getLoc(),
+                                              getOpaquePtrType(op.getContext()));
+    auto zeroI8 = createI8Constant(op.getLoc(), 0, rewriter);
+
+    auto tailPtr = getCombiningLockFieldPointer(op.getLoc(), lockPtr, lockElementType,
+                                                {0, 0, 0}, rewriter);
+    auto statusPtr = getCombiningLockFieldPointer(op.getLoc(), lockPtr, lockElementType,
+                                                  {0, 0, 1}, rewriter);
+    mlir::LLVM::StoreOp::create(rewriter, op.getLoc(), nullPtr.getResult(), tailPtr);
+    mlir::LLVM::StoreOp::create(rewriter, op.getLoc(), zeroI8, statusPtr);
+
+    if (mlir::Value initialValue = adaptor.getInitialValue()) {
+      auto payloadPtr = getCombiningLockFieldPointer(op.getLoc(), lockPtr,
+                                                     lockElementType, {0, 1},
+                                                     rewriter);
+      mlir::LLVM::StoreOp::create(rewriter, op.getLoc(), initialValue, payloadPtr);
+    }
+
+    rewriter.eraseOp(op);
+    return mlir::success();
+  }
+};
+
+struct CombiningLockHasTailLowering
+    : public mlir::OpConversionPattern<SyncCombiningLockHasTailOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  mlir::LogicalResult
+  matchAndRewrite(SyncCombiningLockHasTailOp op, OpAdaptor adaptor,
+                  mlir::ConversionPatternRewriter &rewriter) const override {
+    auto &converter =
+        *static_cast<const mlir::LLVMTypeConverter *>(getTypeConverter());
+    auto lockType = llvm::cast<mlir::MemRefType>(op.getLock().getType());
+    auto lockElementType = converter.convertType(lockType.getElementType());
+    if (!lockElementType)
+      return rewriter.notifyMatchFailure(op, "failed to convert combining lock");
+
+    auto loc = op.getLoc();
+    auto lockPtr = getCombiningLockPointer(op, adaptor.getLock(), converter, rewriter);
+    auto tailPtr = getCombiningLockFieldPointer(loc, lockPtr, lockElementType,
+                                                {0, 0, 0}, rewriter);
+    unsigned ptrAlignment = converter.getPointerBitwidth(0) / 8;
+    auto tail = mlir::LLVM::LoadOp::create(rewriter, loc, getOpaquePtrType(op.getContext()),
+                                           tailPtr, ptrAlignment, false, false, false, false,
+                                           mlir::LLVM::AtomicOrdering::monotonic);
+    auto nullPtr = mlir::LLVM::ZeroOp::create(rewriter, loc,
+                                              getOpaquePtrType(op.getContext()));
+    auto hasTail = mlir::LLVM::ICmpOp::create(
+        rewriter, loc, mlir::LLVM::ICmpPredicate::ne, tail.getResult(),
+        nullPtr.getResult());
+    rewriter.replaceOp(op, hasTail.getResult());
+    return mlir::success();
+  }
+};
+
+struct CombiningLockTryAcquireLowering
+    : public mlir::OpConversionPattern<SyncCombiningLockTryAcquireOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  mlir::LogicalResult
+  matchAndRewrite(SyncCombiningLockTryAcquireOp op, OpAdaptor adaptor,
+                  mlir::ConversionPatternRewriter &rewriter) const override {
+    auto &converter =
+        *static_cast<const mlir::LLVMTypeConverter *>(getTypeConverter());
+    auto lockType = llvm::cast<mlir::MemRefType>(op.getLock().getType());
+    auto lockElementType = converter.convertType(lockType.getElementType());
+    if (!lockElementType)
+      return rewriter.notifyMatchFailure(op, "failed to convert combining lock");
+
+    auto loc = op.getLoc();
+    auto lockPtr = getCombiningLockPointer(op, adaptor.getLock(), converter, rewriter);
+    auto statusPtr = getCombiningLockFieldPointer(loc, lockPtr, lockElementType,
+                                                  {0, 0, 1}, rewriter);
+    auto zero = createI8Constant(loc, 0, rewriter);
+    auto one = createI8Constant(loc, 1, rewriter);
+    auto previous = mlir::LLVM::AtomicRMWOp::create(
+        rewriter, loc, mlir::LLVM::AtomicBinOp::xchg, statusPtr, one,
+        mlir::LLVM::AtomicOrdering::acquire,
+        /*syncscope=*/"", /*alignment=*/1);
+    auto acquired = mlir::LLVM::ICmpOp::create(
+        rewriter, loc, mlir::LLVM::ICmpPredicate::eq, previous.getResult(),
+        zero);
+    rewriter.replaceOp(op, acquired.getResult());
+    return mlir::success();
+  }
+};
+
+struct CombiningLockReleaseLowering
+    : public mlir::OpConversionPattern<SyncCombiningLockReleaseOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  mlir::LogicalResult
+  matchAndRewrite(SyncCombiningLockReleaseOp op, OpAdaptor adaptor,
+                  mlir::ConversionPatternRewriter &rewriter) const override {
+    auto &converter =
+        *static_cast<const mlir::LLVMTypeConverter *>(getTypeConverter());
+    auto lockType = llvm::cast<mlir::MemRefType>(op.getLock().getType());
+    auto lockElementType = converter.convertType(lockType.getElementType());
+    if (!lockElementType)
+      return rewriter.notifyMatchFailure(op, "failed to convert combining lock");
+
+    auto lockPtr = getCombiningLockPointer(op, adaptor.getLock(), converter, rewriter);
+    auto statusPtr = getCombiningLockFieldPointer(op.getLoc(), lockPtr, lockElementType,
+                                                  {0, 0, 1}, rewriter);
+    auto zero = createI8Constant(op.getLoc(), 0, rewriter);
+    mlir::LLVM::StoreOp::create(rewriter, op.getLoc(), zero, statusPtr,
+                                /*alignment=*/1, /*isVolatile=*/false,
+                                /*isNonTemporal=*/false,
+                                /*isInvariantGroup=*/false,
+                                mlir::LLVM::AtomicOrdering::release);
+    rewriter.eraseOp(op);
+    return mlir::success();
+  }
+};
+
+struct CombiningLockGetPayloadLowering
+    : public mlir::OpConversionPattern<SyncCombiningLockGetPayloadOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  mlir::LogicalResult
+  matchAndRewrite(SyncCombiningLockGetPayloadOp op, OpAdaptor adaptor,
+                  mlir::ConversionPatternRewriter &rewriter) const override {
+    auto &converter =
+        *static_cast<const mlir::LLVMTypeConverter *>(getTypeConverter());
+    auto sourceType = llvm::cast<mlir::MemRefType>(op.getSource().getType());
+    auto sourceElementType = sourceType.getElementType();
+    auto loweredSourceType = converter.convertType(sourceElementType);
+    if (!loweredSourceType)
+      return rewriter.notifyMatchFailure(op, "failed to convert source type");
+
+    if (llvm::isa<CombiningLockType>(sourceElementType)) {
+      auto payloadType = llvm::cast<mlir::MemRefType>(op.getResult(0).getType());
+      auto sourcePtr =
+          mlir::LLVM::getStridedElementPtr(rewriter, op.getLoc(), converter,
+                                           sourceType, adaptor.getSource(), {});
+      auto payloadPtr = getCombiningLockFieldPointer(op.getLoc(), sourcePtr,
+                                                     loweredSourceType, {0, 1},
+                                                     rewriter);
+      rewriter.replaceOp(op, buildStaticZeroRankMemRef(op.getLoc(), converter,
+                                                       payloadType, payloadPtr,
+                                                       rewriter));
+      return mlir::success();
+    }
+
+    auto nodeType = llvm::cast<CombiningLockNodeType>(sourceElementType);
+    auto nodePtr = getNodePointer(op, adaptor.getSource(), sourceType, converter,
+                                  rewriter);
+    auto payloadFieldPtr = getCombiningLockFieldPointer(op.getLoc(), nodePtr,
+                                                        loweredSourceType, {0, 3},
+                                                        rewriter);
+    auto payloadRawPtr = mlir::LLVM::LoadOp::create(
+        rewriter, op.getLoc(), getOpaquePtrType(op.getContext()), payloadFieldPtr);
+
+    llvm::SmallVector<mlir::Value> replacements;
+    replacements.reserve(op.getNumResults());
+
+    auto payloadType = llvm::cast<mlir::MemRefType>(op.getResult(0).getType());
+    replacements.push_back(buildStaticZeroRankMemRef(op.getLoc(), converter,
+                                                     payloadType,
+                                                     payloadRawPtr.getResult(),
+                                                     rewriter));
+
+    for (auto [index, captureType] : llvm::enumerate(nodeType.getCaptureTypes())) {
+      auto loweredCaptureType = converter.convertType(captureType);
+      if (!loweredCaptureType)
+        return rewriter.notifyMatchFailure(op, "failed to convert capture type");
+      auto captureFieldPtr = getCombiningLockFieldPointer(
+          op.getLoc(), nodePtr, loweredSourceType,
+          {0, static_cast<int32_t>(index + 4)}, rewriter);
+      auto capture = mlir::LLVM::LoadOp::create(rewriter, op.getLoc(),
+                                                loweredCaptureType,
+                                                captureFieldPtr);
+      replacements.push_back(capture.getResult());
+    }
+
+    rewriter.replaceOp(op, replacements);
+    return mlir::success();
+  }
+};
+
+struct CombiningLockCaptureLowering
+    : public mlir::OpConversionPattern<SyncCombiningLockCaptureOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  mlir::LogicalResult
+  matchAndRewrite(SyncCombiningLockCaptureOp op, OpAdaptor adaptor,
+                  mlir::ConversionPatternRewriter &rewriter) const override {
+    auto &converter =
+        *static_cast<const mlir::LLVMTypeConverter *>(getTypeConverter());
+    auto nodeMemRefType = llvm::cast<mlir::MemRefType>(op.getNode().getType());
+    auto nodeElementType = converter.convertType(nodeMemRefType.getElementType());
+    if (!nodeElementType)
+      return rewriter.notifyMatchFailure(op, "failed to convert node type");
+
+    auto arraySize = createI64Constant(op.getLoc(), 1, rewriter);
+    auto alloca = mlir::LLVM::AllocaOp::create(
+        rewriter, op.getLoc(), getOpaquePtrType(op.getContext()), nodeElementType,
+        arraySize);
+    mlir::LLVM::LifetimeStartOp::create(rewriter, op.getLoc(), alloca.getResult());
+
+    auto futexPtr = getCombiningLockFieldPointer(op.getLoc(), alloca.getResult(),
+                                                 nodeElementType, {0, 0},
+                                                 rewriter);
+    auto nextPtr = getCombiningLockFieldPointer(op.getLoc(), alloca.getResult(),
+                                                nodeElementType, {0, 1},
+                                                rewriter);
+    auto closurePtr = getCombiningLockFieldPointer(op.getLoc(), alloca.getResult(),
+                                                   nodeElementType, {0, 2},
+                                                   rewriter);
+    auto payloadPtrField = getCombiningLockFieldPointer(
+        op.getLoc(), alloca.getResult(), nodeElementType, {0, 3}, rewriter);
+
+    auto waiting = createI32Constant(op.getLoc(), kCombiningNodeWaiting, rewriter);
+    auto nullPtr = mlir::LLVM::ZeroOp::create(rewriter, op.getLoc(),
+                                              getOpaquePtrType(op.getContext()));
+    auto payloadType = llvm::cast<mlir::MemRefType>(op.getPayload().getType());
+    auto payloadPtr = mlir::LLVM::getStridedElementPtr(
+        rewriter, op.getLoc(), converter, payloadType, adaptor.getPayload(), {});
+
+    mlir::LLVM::StoreOp::create(rewriter, op.getLoc(), waiting, futexPtr);
+    mlir::LLVM::StoreOp::create(rewriter, op.getLoc(), nullPtr.getResult(), nextPtr);
+    mlir::LLVM::StoreOp::create(rewriter, op.getLoc(), adaptor.getCallee(),
+                                closurePtr,
+                                /*alignment=*/0, /*isVolatile=*/false,
+                                /*isNonTemporal=*/false,
+                                /*isInvariantGroup=*/true);
+    mlir::LLVM::StoreOp::create(rewriter, op.getLoc(), payloadPtr, payloadPtrField);
+
+    auto nodeType = llvm::cast<CombiningLockNodeType>(nodeMemRefType.getElementType());
+    for (auto [index, captureType, captureValue] :
+         llvm::zip_equal(llvm::seq<size_t>(0, nodeType.getCaptureTypes().size()),
+                         nodeType.getCaptureTypes(), adaptor.getCaptures())) {
+      auto loweredCaptureType = converter.convertType(captureType);
+      if (!loweredCaptureType)
+        return rewriter.notifyMatchFailure(op, "failed to convert capture type");
+      auto captureFieldPtr = getCombiningLockFieldPointer(
+          op.getLoc(), alloca.getResult(), nodeElementType,
+          {0, static_cast<int32_t>(index + 4)}, rewriter);
+      mlir::LLVM::StoreOp::create(rewriter, op.getLoc(), captureValue, captureFieldPtr,
+                                  /*alignment=*/0, /*isVolatile=*/false,
+                                  /*isNonTemporal=*/false,
+                                  /*isInvariantGroup=*/true);
+    }
+
+    auto nodeDescriptor = buildStaticZeroRankMemRef(op.getLoc(), converter,
+                                                    nodeMemRefType,
+                                                    alloca.getResult(), rewriter);
+    rewriter.replaceOp(op, mlir::ValueRange{nodeDescriptor, alloca.getResult()});
+    return mlir::success();
+  }
+};
+
+struct CombiningLockCaptureEndLowering
+    : public mlir::OpConversionPattern<SyncCombiningLockCaptureEndOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  mlir::LogicalResult
+  matchAndRewrite(SyncCombiningLockCaptureEndOp op, OpAdaptor adaptor,
+                  mlir::ConversionPatternRewriter &rewriter) const override {
+    mlir::LLVM::LifetimeEndOp::create(rewriter, op.getLoc(), adaptor.getRawNode());
+    rewriter.eraseOp(op);
+    return mlir::success();
+  }
+};
+
+struct CombiningLockRecoverLowering
+    : public mlir::OpConversionPattern<SyncCombiningLockRecoverOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  mlir::LogicalResult
+  matchAndRewrite(SyncCombiningLockRecoverOp op, OpAdaptor adaptor,
+                  mlir::ConversionPatternRewriter &rewriter) const override {
+    auto &converter =
+        *static_cast<const mlir::LLVMTypeConverter *>(getTypeConverter());
+    auto captureTypes = llvm::to_vector(llvm::drop_begin(op.getResultTypes()));
+    auto nodeElementType =
+        getCombiningNodeLLVMTypeForCaptures(converter, op.getContext(),
+                                            captureTypes);
+    if (!nodeElementType)
+      return rewriter.notifyMatchFailure(op, "failed to convert recovery node type");
+
+    auto payloadFieldPtr = getCombiningLockFieldPointer(op.getLoc(), adaptor.getNode(),
+                                                        nodeElementType, {0, 3},
+                                                        rewriter);
+    auto payloadRawPtr = mlir::LLVM::LoadOp::create(
+        rewriter, op.getLoc(), getOpaquePtrType(op.getContext()), payloadFieldPtr);
+
+    llvm::SmallVector<mlir::Value> replacements;
+    replacements.reserve(op.getNumResults());
+
+    auto payloadType = llvm::cast<mlir::MemRefType>(op.getResult(0).getType());
+    replacements.push_back(buildStaticZeroRankMemRef(op.getLoc(), converter,
+                                                     payloadType,
+                                                     payloadRawPtr.getResult(),
+                                                     rewriter));
+
+    for (auto [index, captureType] :
+         llvm::enumerate(llvm::drop_begin(op.getResultTypes()))) {
+      auto loweredCaptureType = converter.convertType(captureType);
+      if (!loweredCaptureType)
+        return rewriter.notifyMatchFailure(op, "failed to convert capture type");
+      auto captureFieldPtr = getCombiningLockFieldPointer(
+          op.getLoc(), adaptor.getNode(), nodeElementType,
+          {0, static_cast<int32_t>(index + 4)}, rewriter);
+      auto capture = mlir::LLVM::LoadOp::create(rewriter, op.getLoc(),
+                                                loweredCaptureType,
+                                                captureFieldPtr,
+                                                /*alignment=*/0,
+                                                /*isVolatile=*/false,
+                                                /*isNonTemporal=*/false,
+                                                /*isInvariant=*/false,
+                                                /*isInvariantGroup=*/true);
+      replacements.push_back(capture.getResult());
+    }
+
+    rewriter.replaceOp(op, replacements);
+    return mlir::success();
+  }
+};
+
 } // namespace
 
 void configureConvertSyncToLLVMConversionLegality(
@@ -194,7 +602,12 @@ void populateConvertSyncToLLVMConversionPatterns(
     mlir::LLVMTypeConverter &converter, mlir::RewritePatternSet &patterns) {
   patterns.add<RawMutexInitLowering, RawMutexTryLockLowering,
                RawMutexUnlockFastLowering, MutexGetRawMutexLowering,
-               MutexGetPayloadLowering>(
+               MutexGetPayloadLowering, CombiningLockInitLowering,
+               CombiningLockHasTailLowering, CombiningLockTryAcquireLowering,
+               CombiningLockReleaseLowering,
+               CombiningLockGetPayloadLowering, CombiningLockCaptureLowering,
+               CombiningLockCaptureEndLowering,
+               CombiningLockRecoverLowering>(
       converter, patterns.getContext());
 }
 

@@ -33,4 +33,34 @@ def SyncMutexType
   let genVerifyDecl = 1;
 }
 
+def SyncCombiningLockType
+    : SyncType<"CombiningLock", "combining_lock",
+               [MemRefElementTypeInterface]> {
+  let summary = "Combining lock with inline payload storage";
+  let description = [{
+    `!sync.combining_lock<T>` models the runtime `Lock<T>` value used by the
+    combining lock implementation. The LLVM lowering maps it to a structure
+    whose first field is the raw lock header and whose second field is the
+    lowered payload type.
+  }];
+  let parameters = (ins "Type":$valueType);
+  let assemblyFormat = "`<` $valueType `>`";
+  let genVerifyDecl = 1;
+}
+
+def SyncCombiningLockNodeType
+    : SyncType<"CombiningLockNode", "combining_lock_node",
+               [MemRefElementTypeInterface]> {
+  let summary = "Combining lock slow-path node";
+  let description = [{
+    `!sync.combining_lock_node<T1, T2, ...>` models the stack-allocated node
+    passed to the runtime combining-lock slow path. The lowered layout stores
+    the runtime node header, a raw pointer to the protected payload, and then
+    the captured SSA values in order.
+  }];
+  let parameters = (ins ArrayRefParameter<"mlir::Type", "capture types">:$captureTypes);
+  let assemblyFormat = "`<` $captureTypes `>`";
+  let genVerifyDecl = 1;
+}
+
 #endif // SYNC_IR_SYNCTYPES_TD

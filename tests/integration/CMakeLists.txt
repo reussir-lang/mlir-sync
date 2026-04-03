@@ -33,6 +33,9 @@ add_custom_command(
     ${CMAKE_SOURCE_DIR}/Cargo.lock
     ${CMAKE_SOURCE_DIR}/crates/mlir_sync/Cargo.toml
     ${CMAKE_SOURCE_DIR}/crates/mlir_sync/src/lib.rs
+    ${CMAKE_SOURCE_DIR}/crates/mlir_sync/src/combining_lock/mod.rs
+    ${CMAKE_SOURCE_DIR}/crates/mlir_sync/src/combining_lock/node.rs
+    ${CMAKE_SOURCE_DIR}/crates/mlir_sync/src/combining_lock/rawlock.rs
     ${CMAKE_SOURCE_DIR}/crates/mlir_sync/src/mutex.rs
     ${CMAKE_SOURCE_DIR}/crates/portable_futex/Cargo.toml
     ${CMAKE_SOURCE_DIR}/crates/portable_futex/build.rs

@@ -21,6 +21,15 @@ mlir::LowerToLLVMOptions getLowerOptions(mlir::ModuleOp moduleOp) {
   return options;
 }
 
+mlir::Type getOpaquePtrType(mlir::MLIRContext *context) {
+  return mlir::LLVM::LLVMPointerType::get(context);
+}
+
+mlir::LLVM::LLVMStructType getCombiningRawLockLLVMType(mlir::MLIRContext *context) {
+  return mlir::LLVM::LLVMStructType::getLiteral(
+      context, {getOpaquePtrType(context), mlir::IntegerType::get(context, 8)});
+}
+
 } // namespace
 
 void populateSyncToLLVMTypeConversions(mlir::LLVMTypeConverter &converter) {
@@ -35,6 +44,29 @@ void populateSyncToLLVMTypeConversions(mlir::LLVMTypeConverter &converter) {
     return mlir::LLVM::LLVMStructType::getLiteral(
         type.getContext(), {i32Type, payloadType});
   });
+  converter.addConversion([&converter](CombiningLockType type) -> mlir::Type {
+    mlir::Type payloadType = converter.convertType(type.getValueType());
+    if (!payloadType)
+      return {};
+    return mlir::LLVM::LLVMStructType::getLiteral(
+        type.getContext(),
+        {getCombiningRawLockLLVMType(type.getContext()), payloadType});
+  });
+  converter.addConversion(
+      [&converter](CombiningLockNodeType type) -> mlir::Type {
+        llvm::SmallVector<mlir::Type> fields{
+            mlir::IntegerType::get(type.getContext(), 32),
+            getOpaquePtrType(type.getContext()),
+            getOpaquePtrType(type.getContext()),
+            getOpaquePtrType(type.getContext())};
+        for (mlir::Type captureType : type.getCaptureTypes()) {
+          mlir::Type loweredCapture = converter.convertType(captureType);
+          if (!loweredCapture)
+            return mlir::Type{};
+          fields.push_back(loweredCapture);
+        }
+        return mlir::LLVM::LLVMStructType::getLiteral(type.getContext(), fields);
+      });
 }
 
 LLVMTypeConverter::LLVMTypeConverter(mlir::ModuleOp moduleOp)

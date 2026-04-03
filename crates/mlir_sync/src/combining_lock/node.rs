@@ -12,6 +12,7 @@ const DONE: u32 = 1;
 const HEAD: u32 = 2;
 const SLEEPING: u32 = 3;
 
+#[repr(C)]
 pub struct Node {
     futex: futex::Futex,
     next: AtomicPtr<Self>,
