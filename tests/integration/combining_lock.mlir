@@ -42,7 +42,7 @@ module {
 // ROUNDTRIP: sync.combining_lock.init
 // ROUNDTRIP: sync.combining_lock.critical_section %{{.*}} {combine_limit = 7 : i64}
 
-// STD: func.func private @__sync_combining_lock_slow_{{[0-9]+}}(%arg0: !ptr.ptr<#ptr.generic_space>) attributes {llvm.linkage = #llvm.linkage<internal>, no_inline, passthrough = ["cold"]}
+// STD-LABEL: func.func private @__sync_combining_lock_slow_{{[0-9]+}}(%arg0: !ptr.ptr<#ptr.generic_space>) attributes {llvm.linkage = #llvm.linkage<internal>, no_inline, passthrough = ["cold"]}
 // STD: %[[RECOVERED_PAYLOAD:.+]]:3 = "sync.combining_lock.recover"(%{{.*}}) : (!ptr.ptr<#ptr.generic_space>) -> (memref<i64>, i32, i64)
 // STD-LABEL: func.func @combining_lock_capture_shape
 // STD-DAG: %[[PAYLOAD:.+]] = sync.combining_lock.get_payload %{{.*}} : memref<!sync.combining_lock<i64>> -> memref<i64>
@@ -65,7 +65,8 @@ module {
 // STD-LABEL: func.func @combining_lock_default_limit
 // STD: arith.constant -1 : i64
 
-// LLVM: llvm.func internal @__sync_combining_lock_slow_{{[0-9]+}}(%arg0: !llvm.ptr) attributes {passthrough = ["cold"], sym_visibility = "private"}
+// LLVM-LABEL: llvm.func internal @__sync_combining_lock_slow_{{[0-9]+}}(%arg0: !llvm.ptr) attributes {passthrough = ["cold"], sym_visibility = "private"}
+// LLVM: llvm.func @mlir_sync_combining_lock_attach_slow_path(!llvm.ptr, !llvm.ptr, i64) attributes {passthrough = ["cold", "nounwind", "noinline"], sym_visibility = "private"}
 // LLVM-LABEL: llvm.func @combining_lock_capture_shape
 // LLVM: llvm.atomicrmw xchg
 // LLVM: llvm.alloca

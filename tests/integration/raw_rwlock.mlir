@@ -50,9 +50,9 @@ module {
 // ROUNDTRIP: sync.raw_rwlock.write_lock
 // ROUNDTRIP: sync.raw_rwlock.write_unlock
 
-// STD-DAG: func.func private @mlir_sync_rwlock_read_lock_slow_path(!ptr.ptr<#ptr.generic_space>)
-// STD-DAG: func.func private @mlir_sync_rwlock_write_lock_slow_path(!ptr.ptr<#ptr.generic_space>)
-// STD-DAG: func.func private @mlir_sync_rwlock_unlock_slow_path(!ptr.ptr<#ptr.generic_space>, i32)
+// STD-DAG: func.func private @mlir_sync_rwlock_read_lock_slow_path(!ptr.ptr<#ptr.generic_space>) attributes {no_inline, passthrough = ["cold", "nounwind", "noinline"]}
+// STD-DAG: func.func private @mlir_sync_rwlock_write_lock_slow_path(!ptr.ptr<#ptr.generic_space>) attributes {no_inline, passthrough = ["cold", "nounwind", "noinline"]}
+// STD-DAG: func.func private @mlir_sync_rwlock_unlock_slow_path(!ptr.ptr<#ptr.generic_space>, i32) attributes {no_inline, passthrough = ["cold", "nounwind", "noinline"]}
 // STD-LABEL: func.func @try_read_then_unlock() -> i1 {
 // STD: %[[TRYREAD:.+]]:2 = scf.while
 // STD: %[[STATE:.+]] = sync.raw_rwlock.load_state %{{.*}} : memref<!sync.raw_rwlock>
@@ -120,9 +120,9 @@ module {
 // STD: func.call @mlir_sync_rwlock_unlock_slow_path(%{{.*}}, %[[UNLOCK]]) : (!ptr.ptr<#ptr.generic_space>, i32) -> ()
 // STD: }
 
-// LOWER-DAG: llvm.func @mlir_sync_rwlock_read_lock_slow_path(!llvm.ptr)
-// LOWER-DAG: llvm.func @mlir_sync_rwlock_write_lock_slow_path(!llvm.ptr)
-// LOWER-DAG: llvm.func @mlir_sync_rwlock_unlock_slow_path(!llvm.ptr, i32)
+// LOWER-DAG: llvm.func @mlir_sync_rwlock_read_lock_slow_path(!llvm.ptr) attributes {passthrough = ["cold", "nounwind", "noinline"], sym_visibility = "private"}
+// LOWER-DAG: llvm.func @mlir_sync_rwlock_write_lock_slow_path(!llvm.ptr) attributes {passthrough = ["cold", "nounwind", "noinline"], sym_visibility = "private"}
+// LOWER-DAG: llvm.func @mlir_sync_rwlock_unlock_slow_path(!llvm.ptr, i32) attributes {passthrough = ["cold", "nounwind", "noinline"], sym_visibility = "private"}
 // LOWER-LABEL: llvm.func @try_read_then_unlock() -> i1 {
 // LOWER: llvm.load
 // LOWER: llvm.cmpxchg

@@ -45,14 +45,25 @@ mlir::func::FuncOp getOrCreateRuntimeFunc(mlir::Location loc,
                                           mlir::TypeRange resultTypes,
                                           mlir::ModuleOp moduleOp,
                                           mlir::PatternRewriter &rewriter) {
-  if (auto func = moduleOp.lookupSymbol<mlir::func::FuncOp>(name))
+  if (auto func = moduleOp.lookupSymbol<mlir::func::FuncOp>(name)) {
+    func.setNoInline(true);
+    func->setAttr("passthrough",
+                  rewriter.getArrayAttr({rewriter.getStringAttr("cold"),
+                                         rewriter.getStringAttr("nounwind"),
+                                         rewriter.getStringAttr("noinline")}));
     return func;
+  }
 
   mlir::OpBuilder::InsertionGuard guard(rewriter);
   rewriter.setInsertionPointToStart(moduleOp.getBody());
   auto fnType = rewriter.getFunctionType(argumentTypes, resultTypes);
   auto func = mlir::func::FuncOp::create(rewriter, loc, name, fnType);
   func.setPrivate();
+  func.setNoInline(true);
+  func->setAttr("passthrough",
+                rewriter.getArrayAttr({rewriter.getStringAttr("cold"),
+                                       rewriter.getStringAttr("nounwind"),
+                                       rewriter.getStringAttr("noinline")}));
   return func;
 }
 
@@ -217,13 +228,15 @@ mlir::Value buildReadUnlockSlowPathCondition(mlir::Location loc,
   auto mask = createI32Constant(loc, kRwLockMask, rewriter);
   auto zero = createI32Constant(loc, 0, rewriter);
   auto writersWaiting = createI32Constant(loc, kRwLockWritersWaiting, rewriter);
-  auto masked = rewriter.create<mlir::arith::AndIOp>(loc, state, mask);
-  auto writers = rewriter.create<mlir::arith::AndIOp>(loc, state, writersWaiting);
-  auto unlocked = rewriter.create<mlir::arith::CmpIOp>(
-      loc, mlir::arith::CmpIPredicate::eq, masked, zero);
-  auto hasWritersWaiting = rewriter.create<mlir::arith::CmpIOp>(
-      loc, mlir::arith::CmpIPredicate::ne, writers, zero);
-  return rewriter.create<mlir::arith::AndIOp>(loc, unlocked, hasWritersWaiting);
+  auto masked = mlir::arith::AndIOp::create(rewriter, loc, state, mask);
+  auto writers =
+      mlir::arith::AndIOp::create(rewriter, loc, state, writersWaiting);
+  auto unlocked = mlir::arith::CmpIOp::create(
+      rewriter, loc, mlir::arith::CmpIPredicate::eq, masked, zero);
+  auto hasWritersWaiting = mlir::arith::CmpIOp::create(
+      rewriter, loc, mlir::arith::CmpIPredicate::ne, writers, zero);
+  return mlir::arith::AndIOp::create(rewriter, loc, unlocked,
+                                     hasWritersWaiting);
 }
 
 mlir::Value buildWriteUnlockSlowPathCondition(mlir::Location loc,
@@ -232,9 +245,10 @@ mlir::Value buildWriteUnlockSlowPathCondition(mlir::Location loc,
   auto waiters = createI32Constant(
       loc, kRwLockReadersWaiting | kRwLockWritersWaiting, rewriter);
   auto zero = createI32Constant(loc, 0, rewriter);
-  auto pending = rewriter.create<mlir::arith::AndIOp>(loc, state, waiters);
-  return rewriter.create<mlir::arith::CmpIOp>(
-      loc, mlir::arith::CmpIPredicate::ne, pending, zero);
+  auto pending = mlir::arith::AndIOp::create(rewriter, loc, state, waiters);
+  return mlir::arith::CmpIOp::create(rewriter, loc,
+                                     mlir::arith::CmpIPredicate::ne, pending,
+                                     zero);
 }
 
 template <typename CriticalSectionOp, typename LockOp, typename UnlockOp,

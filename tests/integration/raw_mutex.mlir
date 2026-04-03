@@ -27,8 +27,8 @@ module {
 // ROUNDTRIP: sync.raw_mutex.lock
 // ROUNDTRIP: sync.raw_mutex.unlock
 
-// STD-DAG: func.func private @mlir_sync_mutex_lock_slow_path(!ptr.ptr<#ptr.generic_space>)
-// STD-DAG: func.func private @mlir_sync_mutex_unlock_slow_path(!ptr.ptr<#ptr.generic_space>)
+// STD-DAG: func.func private @mlir_sync_mutex_lock_slow_path(!ptr.ptr<#ptr.generic_space>) attributes {no_inline, passthrough = ["cold", "nounwind", "noinline"]}
+// STD-DAG: func.func private @mlir_sync_mutex_unlock_slow_path(!ptr.ptr<#ptr.generic_space>) attributes {no_inline, passthrough = ["cold", "nounwind", "noinline"]}
 // STD: func.func @try_lock_once() -> i1
 // STD: %[[MUTEX:.+]] = memref.alloca() : memref<!sync.raw_mutex>
 // STD: sync.raw_mutex.init %[[MUTEX]]
@@ -49,8 +49,8 @@ module {
 // STD: {{(func\.)?call}} @mlir_sync_mutex_unlock_slow_path(%[[SLOW_PTR]]) : (!ptr.ptr<#ptr.generic_space>) -> ()
 // STD: }
 
-// LOWER-DAG: llvm.func @mlir_sync_mutex_lock_slow_path(!llvm.ptr)
-// LOWER-DAG: llvm.func @mlir_sync_mutex_unlock_slow_path(!llvm.ptr)
+// LOWER-DAG: llvm.func @mlir_sync_mutex_lock_slow_path(!llvm.ptr) attributes {passthrough = ["cold", "nounwind", "noinline"], sym_visibility = "private"}
+// LOWER-DAG: llvm.func @mlir_sync_mutex_unlock_slow_path(!llvm.ptr) attributes {passthrough = ["cold", "nounwind", "noinline"], sym_visibility = "private"}
 // LOWER: llvm.func @try_lock_once() -> i1 {
 // LOWER: llvm.store
 // LOWER: llvm.cmpxchg
