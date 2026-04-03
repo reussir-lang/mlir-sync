@@ -4,6 +4,7 @@
 
 pub mod combining_lock;
 pub mod mutex;
+pub mod rwlock;
 
 #[cfg(not(any(test, miri)))]
 #[panic_handler]

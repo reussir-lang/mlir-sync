@@ -251,7 +251,7 @@ impl Futex {
     /// # Safety
     ///
     /// `this` must point to a valid [`Futex`].
-    pub unsafe fn wake_one(this: NonNull<Self>) {
+    pub unsafe fn wake_one(this: NonNull<Self>) -> bool {
         #[cfg(all(
             feature = "nightly",
             not(miri),
@@ -259,9 +259,9 @@ impl Futex {
             target_feature = "atomics",
             any(target_arch = "wasm32", target_arch = "wasm64")
         ))]
-        unsafe {
-            wasm::memory_atomic_notify((*this.as_ptr()).word.as_ptr().cast(), 1);
-        }
+        return unsafe {
+            wasm::memory_atomic_notify((*this.as_ptr()).word.as_ptr().cast(), 1) != 0
+        };
 
         #[cfg(miri)]
         {
@@ -270,11 +270,12 @@ impl Futex {
                     .lock()
                     .unwrap_or_else(|poisoned| poisoned.into_inner());
                 let Some(waiter) = guard.pop() else {
-                    return;
+                    return false;
                 };
                 waiter
             };
             waiter.unpark();
+            return true;
         }
 
         #[cfg(all(
@@ -287,17 +288,23 @@ impl Futex {
                 any(target_arch = "wasm32", target_arch = "wasm64")
             ))
         ))]
-        {}
+        return false;
 
         #[cfg(all(not(miri), target_os = "linux"))]
         {
-            let _ = unsafe { linux_futex_wake(core::ptr::addr_of!((*this.as_ptr()).word), 1) };
+            return unsafe {
+                linux_futex_wake(core::ptr::addr_of!((*this.as_ptr()).word), 1)
+                    .map(|woken| woken != 0)
+                    .unwrap_or(false)
+            };
         }
 
         #[cfg(all(not(miri), target_os = "windows"))]
         unsafe {
             WakeByAddressSingle((*this.as_ptr()).word.as_ptr().cast());
         }
+        #[cfg(all(not(miri), target_os = "windows"))]
+        return false;
 
         #[cfg(all(not(miri), target_os = "macos"))]
         unsafe {
@@ -307,6 +314,8 @@ impl Futex {
                 OS_SYNC_WAKE_BY_ADDRESS_NONE,
             );
         }
+        #[cfg(all(not(miri), target_os = "macos"))]
+        return false;
     }
 
     #[inline]
