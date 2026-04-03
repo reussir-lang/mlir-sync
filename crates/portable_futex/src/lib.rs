@@ -292,11 +292,11 @@ impl Futex {
 
         #[cfg(all(not(miri), target_os = "linux"))]
         {
-            return unsafe {
+            unsafe {
                 linux_futex_wake(core::ptr::addr_of!((*this.as_ptr()).word), 1)
                     .map(|woken| woken != 0)
                     .unwrap_or(false)
-            };
+            }
         }
 
         #[cfg(all(not(miri), target_os = "windows"))]
