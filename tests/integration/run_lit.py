@@ -9,7 +9,7 @@ from lit.main import main
 def _force_fork_start_method() -> None:
     try:
         multiprocessing.set_start_method("fork", force=True)
-    except RuntimeError:
+    except Exception:
         pass
 
 
