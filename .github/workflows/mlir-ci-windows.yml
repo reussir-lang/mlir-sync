@@ -26,62 +26,41 @@ jobs:
       - name: Restore file timestamps
         uses: chetan/git-restore-mtime-action@v2
 
-      - name: Install Python
-        uses: actions/setup-python@v5
+      - name: Setup MSYS2
+        uses: msys2/setup-msys2@v2
         with:
-          python-version: "3.x"
+          msystem: clang64
+          update: true
+          install: >-
+            git
+            mingw-w64-clang-x86_64-toolchain
+            mingw-w64-clang-x86_64-cmake
+            mingw-w64-clang-x86_64-ninja
+            mingw-w64-clang-x86_64-mlir
+            mingw-w64-clang-x86_64-python
+            mingw-w64-clang-x86_64-python-pip
+            mingw-w64-clang-x86_64-rustup
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: stable
-
-      - name: Set up MSVC environment
-        uses: ilammy/msvc-dev-cmd@v1
-
-      - name: Install LLVM with winget
-        shell: pwsh
+      - name: Install Rust target and lit
+        shell: msys2 {0}
         run: |
-          winget install --id LLVM.LLVM --silent --accept-package-agreements --accept-source-agreements --disable-interactivity
-          $llvmRoot = "C:\Program Files\LLVM"
-          $llvmBin = Join-Path $llvmRoot "bin"
-          $llvmDir = Join-Path $llvmRoot "lib\cmake\llvm"
-          $mlirDir = Join-Path $llvmRoot "lib\cmake\mlir"
-          $clangPath = Join-Path $llvmBin "clang.exe"
-          if (-not (Test-Path $clangPath)) {
-            throw "Expected clang.exe at $clangPath"
-          }
-          if (-not (Test-Path $llvmDir)) {
-            throw "Expected LLVM CMake directory at $llvmDir"
-          }
-          if (-not (Test-Path $mlirDir)) {
-            throw "Expected MLIR CMake directory at $mlirDir"
-          }
-          $clangVersion = & $clangPath --version
-          if ($clangVersion -notmatch "^clang version 22\\.") {
-            throw "Expected LLVM/clang 22.x, found $clangVersion"
-          }
-          $llvmBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          "LLVM_DIR=$llvmDir" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "MLIR_DIR=$mlirDir" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "LLVM_SYMBOLIZER_PATH=$llvmBin\llvm-symbolizer.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           python -m pip install lit
+          rustup toolchain install stable-x86_64-pc-windows-gnullvm
+          rustup target add x86_64-pc-windows-gnullvm
+          rustup default stable-x86_64-pc-windows-gnullvm
 
       - name: Configure CMake
-        shell: pwsh
+        shell: msys2 {0}
         run: |
-          cmake -S . -B build -G Ninja `
-            -DCMAKE_BUILD_TYPE=RelWithDebInfo `
-            -DCMAKE_C_COMPILER=clang-cl `
-            -DCMAKE_CXX_COMPILER=clang-cl `
-            -DSYNC_ENABLE_TESTS=ON `
-            -DLLVM_DIR="$env:LLVM_DIR" `
-            -DMLIR_DIR="$env:MLIR_DIR"
+          cmake -S . -B build \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DSYNC_ENABLE_TESTS=ON
 
       - name: Build
-        shell: pwsh
+        shell: msys2 {0}
         run: cmake --build build --parallel
 
       - name: Run MLIR integration tests
-        shell: pwsh
+        shell: msys2 {0}
         run: cmake --build build --target check-sync --parallel
