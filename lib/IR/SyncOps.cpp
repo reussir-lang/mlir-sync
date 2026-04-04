@@ -60,6 +60,22 @@ mlir::LogicalResult verifyRawRwLockMemRef(mlir::Operation *op, mlir::Type type,
   return mlir::success();
 }
 
+mlir::LogicalResult verifyOnceMemRef(mlir::Operation *op, mlir::Type type,
+                                     llvm::StringRef operandName) {
+  auto memrefType = llvm::dyn_cast<mlir::MemRefType>(type);
+  if (!memrefType)
+    return op->emitOpError() << operandName << " must be a ranked memref";
+  if (memrefType.getRank() != 0)
+    return op->emitOpError() << operandName
+                             << " must be a zero-ranked memref, got "
+                             << memrefType;
+  if (!llvm::isa<OnceType>(memrefType.getElementType()))
+    return op->emitOpError() << operandName
+                             << " element type must be !sync.once, got "
+                             << memrefType.getElementType();
+  return mlir::success();
+}
+
 mlir::LogicalResult verifyRwLockMemRef(mlir::Operation *op, mlir::Type type,
                                        llvm::StringRef operandName) {
   auto memrefType = llvm::dyn_cast<mlir::MemRefType>(type);
@@ -233,6 +249,31 @@ mlir::LogicalResult SyncRawRwLockWriteUnlockFastOp::verify() {
 
 mlir::LogicalResult SyncRawRwLockWriteUnlockOp::verify() {
   return verifyRawRwLockMemRef(*this, getRwlock().getType(), "rwlock");
+}
+
+mlir::LogicalResult SyncOnceInitOp::verify() {
+  return verifyOnceMemRef(*this, getOnce().getType(), "once");
+}
+
+mlir::LogicalResult SyncOnceCompletedOp::verify() {
+  return verifyOnceMemRef(*this, getOnce().getType(), "once");
+}
+
+mlir::LogicalResult SyncOnceExecuteOp::verify() {
+  return verifyOnceMemRef(*this, getOnce().getType(), "once");
+}
+
+mlir::LogicalResult SyncOnceExecuteOp::verifyRegions() {
+  auto &block = getBody().front();
+  if (block.getNumArguments() != 0)
+    return emitOpError() << "body must not take block arguments";
+
+  auto yieldOp = llvm::dyn_cast<SyncYieldOp>(block.getTerminator());
+  if (!yieldOp)
+    return emitOpError() << "body must terminate with sync.yield";
+  if (yieldOp->getNumOperands() != 0)
+    return emitOpError() << "body must not yield values";
+  return mlir::success();
 }
 
 mlir::LogicalResult SyncRwLockInitOp::verify() {

@@ -15,6 +15,9 @@ class SyncRawMutexOp<string mnemonic, list<Trait> traits = []>
 class SyncRawRwLockOp<string mnemonic, list<Trait> traits = []>
     : SyncOp<"raw_rwlock." # mnemonic, traits>;
 
+class SyncOnceOp<string mnemonic, list<Trait> traits = []>
+    : SyncOp<"once." # mnemonic, traits>;
+
 class SyncMutexOp<string mnemonic, list<Trait> traits = []>
     : SyncOp<"mutex." # mnemonic, traits>;
 
@@ -227,6 +230,46 @@ def SyncRawRwLockWriteUnlockOp : SyncRawRwLockOp<"write_unlock"> {
   let hasVerifier = 1;
 }
 
+def SyncOnceInitOp : SyncOnceOp<"init"> {
+  let summary = "Initialize a once state";
+  let description = [{
+    `sync.once.init` initializes a zero-ranked memref containing a
+    `!sync.once` to the incomplete state.
+  }];
+  let arguments = (ins MemRefRankOf<[AnyType], [0]>:$once);
+  let assemblyFormat = "$once attr-dict `:` type($once)";
+  let hasVerifier = 1;
+}
+
+def SyncOnceCompletedOp : SyncOnceOp<"completed"> {
+  let summary = "Check whether once initialization has completed";
+  let description = [{
+    `sync.once.completed` returns `true` when the once state is complete.
+  }];
+  let arguments = (ins MemRefRankOf<[AnyType], [0]>:$once);
+  let results = (outs I1:$completed);
+  let assemblyFormat = "$once attr-dict `:` type($once)";
+  let hasVerifier = 1;
+}
+
+def SyncOnceExecuteOp : SyncOnceOp<"execute", [
+      RecursiveMemoryEffects,
+      SingleBlockImplicitTerminator<"SyncYieldOp">
+    ]> {
+  let summary = "Execute a region at most once";
+  let description = [{
+    `sync.once.execute` expands to the split once protocol:
+    first check `sync.once.completed`, then call the runtime once prologue,
+    execute the region only for the winning thread, and finally call the
+    runtime epilogue.
+  }];
+  let arguments = (ins MemRefRankOf<[AnyType], [0]>:$once);
+  let regions = (region SizedRegion<1>:$body);
+  let assemblyFormat = "$once attr-dict `:` type($once) regions";
+  let hasVerifier = 1;
+  let hasRegionVerifier = 1;
+}
+
 def SyncRwLockInitOp : SyncRwLockOp<"init"> {
   let summary = "Initialize a typed rwlock";
   let description = [{
@@ -243,7 +286,8 @@ def SyncRwLockInitOp : SyncRwLockOp<"init"> {
 def SyncYieldOp : SyncOp<"yield", [ParentOneOf<["SyncMutexCriticalSectionOp",
                                                 "SyncRwLockReadCriticalSectionOp",
                                                 "SyncRwLockWriteCriticalSectionOp",
-                                                "SyncCombiningLockCriticalSectionOp"]>,
+                                                "SyncCombiningLockCriticalSectionOp",
+                                                "SyncOnceExecuteOp"]>,
                                    Terminator]> {
   let summary = "Terminate a sync region";
   let description = [{

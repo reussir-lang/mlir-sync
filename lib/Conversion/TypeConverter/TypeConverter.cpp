@@ -45,6 +45,9 @@ void populateSyncToLLVMTypeConversions(mlir::LLVMTypeConverter &converter) {
   converter.addConversion([](RawRwLockType type) -> mlir::Type {
     return getRawRwLockLLVMType(type.getContext());
   });
+  converter.addConversion([](OnceType type) -> mlir::Type {
+    return mlir::IntegerType::get(type.getContext(), 32);
+  });
   converter.addConversion([&converter](MutexType type) -> mlir::Type {
     auto i32Type = mlir::IntegerType::get(type.getContext(), 32);
     mlir::Type payloadType = converter.convertType(type.getValueType());

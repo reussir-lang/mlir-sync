@@ -31,6 +31,10 @@ constexpr llvm::StringLiteral kWriteLockSlowPath =
     "mlir_sync_rwlock_write_lock_slow_path";
 constexpr llvm::StringLiteral kRwLockUnlockSlowPath =
     "mlir_sync_rwlock_unlock_slow_path";
+constexpr llvm::StringLiteral kOncePrologueSlowPath =
+    "mlir_sync_call_once_slow_path_prologue";
+constexpr llvm::StringLiteral kOnceEpilogueSlowPath =
+    "mlir_sync_call_once_slow_path_epilogue";
 constexpr llvm::StringLiteral kCombiningAttachSlowPath =
     "mlir_sync_combining_lock_attach_slow_path";
 constexpr llvm::StringLiteral kCombiningWrapperPrefix =
@@ -410,6 +414,46 @@ struct RwLockInitLowering : public mlir::OpRewritePattern<SyncRwLockInitOp> {
       mlir::memref::StoreOp::create(rewriter, loc, initialValue, payload,
                                     mlir::ValueRange{});
     }
+    rewriter.eraseOp(op);
+    return mlir::success();
+  }
+};
+
+struct OnceExecuteLowering
+    : public mlir::OpRewritePattern<SyncOnceExecuteOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  mlir::LogicalResult matchAndRewrite(
+      SyncOnceExecuteOp op, mlir::PatternRewriter &rewriter) const override {
+    auto loc = op.getLoc();
+    auto moduleOp = op->getParentOfType<mlir::ModuleOp>();
+    auto ptrType = getRuntimePtrType(op.getOnce());
+    auto prologueFunc = getOrCreateRuntimeFunc(
+        loc, kOncePrologueSlowPath, {ptrType}, {rewriter.getI1Type()}, moduleOp,
+        rewriter);
+    auto epilogueFunc = getOrCreateRuntimeFunc(
+        loc, kOnceEpilogueSlowPath, {ptrType}, {}, moduleOp, rewriter);
+    rewriter.setInsertionPoint(op);
+
+    auto completed = SyncOnceCompletedOp::create(rewriter, loc, rewriter.getI1Type(),
+                                                 op.getOnce());
+    auto outerIf = mlir::scf::IfOp::create(rewriter, loc, completed.getCompleted(),
+                                           /*withElseRegion=*/true);
+    rewriter.setInsertionPointToStart(outerIf.elseBlock());
+    auto ptr = materializeRuntimePtr(loc, op.getOnce(), ptrType, rewriter);
+    auto execute = mlir::func::CallOp::create(rewriter, loc, prologueFunc,
+                                              mlir::ValueRange{ptr});
+    auto innerIf = mlir::scf::IfOp::create(rewriter, loc, execute.getResult(0),
+                                           /*withElseRegion=*/true);
+    rewriter.setInsertionPointToStart(innerIf.thenBlock());
+    auto &bodyBlock = op.getBody().front();
+    auto yieldOp = llvm::cast<SyncYieldOp>(bodyBlock.getTerminator());
+    rewriter.eraseOp(yieldOp);
+    rewriter.inlineBlockBefore(&bodyBlock, innerIf.thenBlock()->getTerminator(),
+                               mlir::ValueRange{});
+    rewriter.setInsertionPoint(innerIf.thenBlock()->getTerminator());
+    mlir::func::CallOp::create(rewriter, loc, epilogueFunc, mlir::ValueRange{ptr});
+
     rewriter.eraseOp(op);
     return mlir::success();
   }
@@ -830,8 +874,8 @@ struct CombiningLockCriticalSectionLowering
 } // namespace
 
 void populateConvertSyncToSTDPatterns(mlir::RewritePatternSet &patterns) {
-  patterns.add<MutexInitLowering, RwLockInitLowering, RawMutexLockLowering,
-               RawMutexUnlockLowering, RawRwLockTryReadLockLowering,
+  patterns.add<MutexInitLowering, RwLockInitLowering, OnceExecuteLowering,
+               RawMutexLockLowering, RawMutexUnlockLowering, RawRwLockTryReadLockLowering,
                RawRwLockTryWriteLockLowering, RawRwLockReadLockLowering,
                RawRwLockReadUnlockLowering, RawRwLockWriteLockLowering,
                RawRwLockWriteUnlockLowering, MutexCriticalSectionLowering,

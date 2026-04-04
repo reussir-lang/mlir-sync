@@ -31,6 +31,17 @@ def SyncRawRwLockType
   let assemblyFormat = "";
 }
 
+def SyncOnceType
+    : SyncType<"Once", "once", [MemRefElementTypeInterface]> {
+  let summary = "Opaque once state";
+  let description = [{
+    `!sync.once` models the storage for the portable futex once
+    implementation in the runtime library. The LLVM lowering maps it exactly
+    to an `i32` state word.
+  }];
+  let assemblyFormat = "";
+}
+
 def SyncMutexType
     : SyncType<"Mutex", "mutex", [MemRefElementTypeInterface]> {
   let summary = "Mutex with inline payload storage";
