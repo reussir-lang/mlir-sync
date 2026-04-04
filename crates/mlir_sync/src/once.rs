@@ -51,9 +51,9 @@ impl Once {
         loop {
             match state {
                 INCOMPLETE => {
-                    if let Err(new) =
-                        self.state
-                            .compare_exchange_weak(INCOMPLETE, RUNNING, Acquire, Acquire)
+                    if let Err(new) = self
+                        .state
+                        .compare_exchange_weak(INCOMPLETE, RUNNING, Acquire, Acquire)
                     {
                         state = new;
                         continue;
@@ -63,13 +63,13 @@ impl Once {
                 }
                 RUNNING | QUEUED => {
                     if state == RUNNING
-                        && let Err(new) =
-                            self.state
-                                .compare_exchange_weak(RUNNING, QUEUED, Relaxed, Acquire)
-                        {
-                            state = new;
-                            continue;
-                        }
+                        && let Err(new) = self
+                            .state
+                            .compare_exchange_weak(RUNNING, QUEUED, Relaxed, Acquire)
+                    {
+                        state = new;
+                        continue;
+                    }
 
                     unsafe { Futex::wait(NonNull::from(&self.state), QUEUED) };
                     state = self.state.load(Acquire);
@@ -93,7 +93,6 @@ impl Once {
             unsafe { Futex::wake_all(NonNull::from(&self.state)) };
         }
     }
-
 }
 
 impl Default for Once {
