@@ -62,15 +62,14 @@ impl Once {
                     return true;
                 }
                 RUNNING | QUEUED => {
-                    if state == RUNNING {
-                        if let Err(new) =
+                    if state == RUNNING
+                        && let Err(new) =
                             self.state
                                 .compare_exchange_weak(RUNNING, QUEUED, Relaxed, Acquire)
                         {
                             state = new;
                             continue;
                         }
-                    }
 
                     unsafe { Futex::wait(NonNull::from(&self.state), QUEUED) };
                     state = self.state.load(Acquire);
