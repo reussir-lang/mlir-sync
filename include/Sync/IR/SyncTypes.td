@@ -4,6 +4,7 @@
 include "Sync/IR/SyncDialect.td"
 include "mlir/IR/AttrTypeBase.td"
 include "mlir/IR/BuiltinTypeInterfaces.td"
+include "mlir/Interfaces/DataLayoutInterfaces.td"
 
 class SyncType<string name, string typeMnemonic, list<Trait> traits = []>
     : TypeDef<SyncDialect, name, traits> {
@@ -11,7 +12,9 @@ class SyncType<string name, string typeMnemonic, list<Trait> traits = []>
 }
 
 def SyncRawMutexType
-    : SyncType<"RawMutex", "raw_mutex", [MemRefElementTypeInterface]> {
+    : SyncType<"RawMutex", "raw_mutex",
+               [MemRefElementTypeInterface,
+                DeclareTypeInterfaceMethods<DataLayoutTypeInterface>]> {
   let summary = "Opaque raw mutex state";
   let description = [{
     `!sync.raw_mutex` models the storage for the portable mutex implementation
@@ -21,7 +24,9 @@ def SyncRawMutexType
 }
 
 def SyncRawRwLockType
-    : SyncType<"RawRwLock", "raw_rwlock", [MemRefElementTypeInterface]> {
+    : SyncType<"RawRwLock", "raw_rwlock",
+               [MemRefElementTypeInterface,
+                DeclareTypeInterfaceMethods<DataLayoutTypeInterface>]> {
   let summary = "Opaque raw rwlock state";
   let description = [{
     `!sync.raw_rwlock` models the storage for the portable futex rwlock
@@ -32,7 +37,9 @@ def SyncRawRwLockType
 }
 
 def SyncOnceType
-    : SyncType<"Once", "once", [MemRefElementTypeInterface]> {
+    : SyncType<"Once", "once",
+               [MemRefElementTypeInterface,
+                DeclareTypeInterfaceMethods<DataLayoutTypeInterface>]> {
   let summary = "Opaque once state";
   let description = [{
     `!sync.once` models the storage for the portable futex once
@@ -43,7 +50,9 @@ def SyncOnceType
 }
 
 def SyncMutexType
-    : SyncType<"Mutex", "mutex", [MemRefElementTypeInterface]> {
+    : SyncType<"Mutex", "mutex",
+               [MemRefElementTypeInterface,
+                DeclareTypeInterfaceMethods<DataLayoutTypeInterface>]> {
   let summary = "Mutex with inline payload storage";
   let description = [{
     `!sync.mutex<T>` stores a raw mutex header together with a payload of type
@@ -56,7 +65,9 @@ def SyncMutexType
 }
 
 def SyncRwLockType
-    : SyncType<"RwLock", "rwlock", [MemRefElementTypeInterface]> {
+    : SyncType<"RwLock", "rwlock",
+               [MemRefElementTypeInterface,
+                DeclareTypeInterfaceMethods<DataLayoutTypeInterface>]> {
   let summary = "Reader-writer lock with inline payload storage";
   let description = [{
     `!sync.rwlock<T>` stores a raw rwlock header together with a payload of type
@@ -70,7 +81,8 @@ def SyncRwLockType
 
 def SyncCombiningLockType
     : SyncType<"CombiningLock", "combining_lock",
-               [MemRefElementTypeInterface]> {
+               [MemRefElementTypeInterface,
+                DeclareTypeInterfaceMethods<DataLayoutTypeInterface>]> {
   let summary = "Combining lock with inline payload storage";
   let description = [{
     `!sync.combining_lock<T>` models the runtime `Lock<T>` value used by the
@@ -85,7 +97,8 @@ def SyncCombiningLockType
 
 def SyncCombiningLockNodeType
     : SyncType<"CombiningLockNode", "combining_lock_node",
-               [MemRefElementTypeInterface]> {
+               [MemRefElementTypeInterface,
+                DeclareTypeInterfaceMethods<DataLayoutTypeInterface>]> {
   let summary = "Combining lock slow-path node";
   let description = [{
     `!sync.combining_lock_node<T1, T2, ...>` models the stack-allocated node

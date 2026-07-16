@@ -52,5 +52,5 @@ configure_file(lit.site.cfg.py.in lit.site.cfg.py @ONLY)
 add_custom_target(check-sync
   COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/run_lit.py -j 1
           ${CMAKE_CURRENT_BINARY_DIR} -v
-  DEPENDS sync-opt sync-runtime
+  DEPENDS check-sync-unit sync-opt sync-runtime
 )
