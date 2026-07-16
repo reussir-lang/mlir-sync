@@ -4,6 +4,7 @@
 #define SYNC_IR_SYNCTYPES_H
 
 #include <mlir/IR/BuiltinTypes.h>
+#include <mlir/Interfaces/DataLayoutInterfaces.h>
 
 #include "Sync/IR/SyncDialect.h"
 

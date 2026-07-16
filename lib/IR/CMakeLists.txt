@@ -13,4 +13,6 @@ add_mlir_dialect_library(MLIRSync
 
   LINK_LIBS PUBLIC
     ${dialect_libs}
+    MLIRDataLayoutInterfaces
+    MLIRLLVMDialect
 )
