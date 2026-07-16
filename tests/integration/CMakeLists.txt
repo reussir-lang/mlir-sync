@@ -26,7 +26,8 @@ add_custom_command(
   OUTPUT ${sync_runtime_lib_path}
   COMMAND ${CMAKE_COMMAND} -E env
           CARGO_TARGET_DIR=${sync_cargo_target_dir}
-          ${cargo_path} build -p mlir_sync --release
+          ${cargo_path} rustc -p mlir_sync --release
+          --crate-type staticlib --features panic-handler
   WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
   DEPENDS
     ${CMAKE_SOURCE_DIR}/Cargo.toml
