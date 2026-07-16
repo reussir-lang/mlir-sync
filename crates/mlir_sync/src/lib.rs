@@ -7,12 +7,15 @@ pub mod mutex;
 pub mod once;
 pub mod rwlock;
 
-#[cfg(not(any(test, miri)))]
+// Only standalone runtime builds (e.g. the staticlib linked into the MLIR
+// integration tests) provide a panic handler; when used as a Rust library
+// dependency the final binary supplies one (usually via std).
+#[cfg(all(feature = "panic-handler", not(any(test, miri))))]
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {
     loop {}
 }
 
-#[cfg(not(any(test, miri)))]
+#[cfg(all(feature = "panic-handler", not(any(test, miri))))]
 #[unsafe(no_mangle)]
 extern "C" fn rust_eh_personality() {}
