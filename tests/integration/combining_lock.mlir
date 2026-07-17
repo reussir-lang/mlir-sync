@@ -58,7 +58,8 @@ module {
 // STD: scf.yield %[[NO_FAST_PATH]] : i1
 // STD: scf.if %[[SHOULD_SLOW]]
 // STD: %[[NODE:.+]], %[[RAW_NODE:.+]] = "sync.combining_lock.capture"(%{{.*}}, %[[PAYLOAD]], %arg0, %c1_i64) : ((!ptr.ptr<#ptr.generic_space>) -> (), memref<i64>, i32, i64) -> (memref<!sync.combining_lock_node<i32, i64>, #ptr.generic_space>, !ptr.ptr<#ptr.generic_space>)
-// STD: func.call @mlir_sync_combining_lock_attach_slow_path
+// STD: func.call @__sync_trampoline_mlir_sync_combining_lock_attach_slow_path
+// STD-SAME: {CConv = #llvm.cconv<preserve_mostcc>}
 // STD: sync.combining_lock.capture_end %[[RAW_NODE]] : !ptr.ptr<#ptr.generic_space>
 // STD: sync.combining_lock.release
 
@@ -66,13 +67,15 @@ module {
 // STD: arith.constant -1 : i64
 
 // LLVM-LABEL: llvm.func internal @__sync_combining_lock_slow_{{[0-9]+}}(%arg0: !llvm.ptr) attributes {passthrough = ["cold"], sym_visibility = "private"}
-// LLVM: llvm.func{{( preserve_mostcc)?}} @mlir_sync_combining_lock_attach_slow_path(!llvm.ptr, !llvm.ptr, i64) attributes {passthrough = ["cold", "nounwind", "noinline"], sym_visibility = "private"}
+// LLVM: llvm.func internal preserve_mostcc @__sync_trampoline_mlir_sync_combining_lock_attach_slow_path(%arg0: !llvm.ptr, %arg1: !llvm.ptr, %arg2: i64) attributes {passthrough = ["cold", "nounwind", "noinline"], sym_visibility = "private"}
+// LLVM: llvm.call @mlir_sync_combining_lock_attach_slow_path(%arg0, %arg1, %arg2) : (!llvm.ptr, !llvm.ptr, i64) -> ()
+// LLVM: llvm.func @mlir_sync_combining_lock_attach_slow_path(!llvm.ptr, !llvm.ptr, i64) attributes {passthrough = ["cold", "nounwind", "noinline"], sym_visibility = "private"}
 // LLVM-LABEL: llvm.func @combining_lock_capture_shape
 // LLVM: llvm.atomicrmw xchg
 // LLVM: llvm.alloca
 // LLVM: llvm.intr.lifetime.start
 // LLVM: llvm.store %{{.*}}, %{{.*}} invariant_group : !llvm.ptr, !llvm.ptr
-// LLVM: llvm.call{{( preserve_mostcc)?}} @mlir_sync_combining_lock_attach_slow_path
+// LLVM: llvm.call preserve_mostcc @__sync_trampoline_mlir_sync_combining_lock_attach_slow_path
 // LLVM: llvm.intr.lifetime.end
 
 // LLVM-LABEL: llvm.func @combining_lock_default_limit
