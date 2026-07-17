@@ -71,7 +71,7 @@ module {
 // STD: scf.if %[[TRYWRITE]]#1 {
 // STD: %[[UNLOCK:.+]] = sync.raw_rwlock.write_unlock_fast %[[RAW]] : memref<!sync.raw_rwlock>
 // STD: scf.if %{{.*}} {
-// STD: func.call @mlir_sync_rwlock_unlock_slow_path(%{{.*}}, %[[UNLOCK]]) : (!ptr.ptr<#ptr.generic_space>, i32) -> ()
+// STD: func.call @mlir_sync_rwlock_unlock_slow_path(%{{.*}}, %[[UNLOCK]]){{( \{CConv = #llvm\.cconv<preserve_mostcc>\})?}} : (!ptr.ptr<#ptr.generic_space>, i32) -> ()
 // STD: }
 // STD: }
 // STD: %{{.*}} = memref.load %[[PAYLOAD]][] : memref<i64>
@@ -91,13 +91,13 @@ module {
 // STD: }
 // STD: scf.if %[[WRITE_LOOP]]#1 {
 // STD: } else {
-// STD: func.call @mlir_sync_rwlock_write_lock_slow_path(%{{.*}}) : (!ptr.ptr<#ptr.generic_space>) -> ()
+// STD: func.call @mlir_sync_rwlock_write_lock_slow_path(%{{.*}}){{( \{CConv = #llvm\.cconv<preserve_mostcc>\})?}} : (!ptr.ptr<#ptr.generic_space>) -> ()
 // STD: }
 // STD: %[[WRITE_PAYLOAD:.+]] = sync.rwlock.get_payload %{{.*}} : memref<!sync.rwlock<i64>> -> memref<i64>
 // STD: memref.store %{{.*}}, %[[WRITE_PAYLOAD]][] : memref<i64>
 // STD: %[[WRITE_UNLOCK:.+]] = sync.raw_rwlock.write_unlock_fast %[[WRITE_RAW]] : memref<!sync.raw_rwlock>
 // STD: scf.if %{{.*}} {
-// STD: func.call @mlir_sync_rwlock_unlock_slow_path(%{{.*}}, %[[WRITE_UNLOCK]]) : (!ptr.ptr<#ptr.generic_space>, i32) -> ()
+// STD: func.call @mlir_sync_rwlock_unlock_slow_path(%{{.*}}, %[[WRITE_UNLOCK]]){{( \{CConv = #llvm\.cconv<preserve_mostcc>\})?}} : (!ptr.ptr<#ptr.generic_space>, i32) -> ()
 // STD: }
 // STD: %[[READ_RAW:.+]] = sync.rwlock.get_raw_rwlock %{{.*}} : memref<!sync.rwlock<i64>> -> memref<!sync.raw_rwlock>
 // STD: %[[READ_LOOP:.+]]:2 = scf.while
@@ -112,13 +112,13 @@ module {
 // STD: }
 // STD: scf.if %[[READ_LOOP]]#1 {
 // STD: } else {
-// STD: func.call @mlir_sync_rwlock_read_lock_slow_path(%{{.*}}) : (!ptr.ptr<#ptr.generic_space>) -> ()
+// STD: func.call @mlir_sync_rwlock_read_lock_slow_path(%{{.*}}){{( \{CConv = #llvm\.cconv<preserve_mostcc>\})?}} : (!ptr.ptr<#ptr.generic_space>) -> ()
 // STD: }
 // STD: %[[READ_PAYLOAD:.+]] = sync.rwlock.get_payload %{{.*}} : memref<!sync.rwlock<i64>> -> memref<i64>
 // STD: %{{.*}} = memref.load %[[READ_PAYLOAD]][] : memref<i64>
 // STD: %[[READ_UNLOCK:.+]] = sync.raw_rwlock.read_unlock_fast %[[READ_RAW]] : memref<!sync.raw_rwlock>
 // STD: scf.if %{{.*}} {
-// STD: func.call @mlir_sync_rwlock_unlock_slow_path(%{{.*}}, %[[READ_UNLOCK]]) : (!ptr.ptr<#ptr.generic_space>, i32) -> ()
+// STD: func.call @mlir_sync_rwlock_unlock_slow_path(%{{.*}}, %[[READ_UNLOCK]]){{( \{CConv = #llvm\.cconv<preserve_mostcc>\})?}} : (!ptr.ptr<#ptr.generic_space>, i32) -> ()
 // STD: }
 
 // LOWER-LABEL: llvm.func @project_and_try_write() -> i1 {
@@ -126,16 +126,16 @@ module {
 // LOWER: llvm.store
 // LOWER: llvm.cmpxchg
 // LOWER: llvm.atomicrmw sub
-// LOWER: llvm.call @mlir_sync_rwlock_unlock_slow_path
+// LOWER: llvm.call{{( preserve_mostcc)?}} @mlir_sync_rwlock_unlock_slow_path
 // LOWER: llvm.load
 // LOWER: llvm.return
 // LOWER-LABEL: llvm.func @rwlock_sections() -> i64 {
 // LOWER: llvm.cmpxchg
-// LOWER: llvm.call @mlir_sync_rwlock_write_lock_slow_path
+// LOWER: llvm.call{{( preserve_mostcc)?}} @mlir_sync_rwlock_write_lock_slow_path
 // LOWER: llvm.atomicrmw sub
-// LOWER: llvm.call @mlir_sync_rwlock_unlock_slow_path
+// LOWER: llvm.call{{( preserve_mostcc)?}} @mlir_sync_rwlock_unlock_slow_path
 // LOWER: llvm.cmpxchg
-// LOWER: llvm.call @mlir_sync_rwlock_read_lock_slow_path
+// LOWER: llvm.call{{( preserve_mostcc)?}} @mlir_sync_rwlock_read_lock_slow_path
 // LOWER: llvm.atomicrmw sub
-// LOWER: llvm.call @mlir_sync_rwlock_unlock_slow_path
+// LOWER: llvm.call{{( preserve_mostcc)?}} @mlir_sync_rwlock_unlock_slow_path
 // LOWER: llvm.return

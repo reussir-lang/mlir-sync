@@ -12,6 +12,7 @@ def ConvertSyncToSTDPass : Pass<"convert-sync-to-std", "::mlir::ModuleOp"> {
   }];
   let dependentDialects = [
     "::mlir::func::FuncDialect",
+    "::mlir::LLVM::LLVMDialect",
     "::mlir::memref::MemRefDialect",
     "::mlir::ptr::PtrDialect",
     "::mlir::scf::SCFDialect",

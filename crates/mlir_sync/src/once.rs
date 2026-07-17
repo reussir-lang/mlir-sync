@@ -101,37 +101,37 @@ impl Default for Once {
     }
 }
 
-#[unsafe(no_mangle)]
-#[cold]
-/// Arbitrates execution of a Once region after a fast-path completion check.
-///
-/// Returns `true` to exactly one caller, which then owns executing the region
-/// and must later call [`mlir_sync_call_once_slow_path_epilogue`]. All other
-/// callers either block until initialization completes or return `false` once
-/// another execution context has completed it.
-///
-/// # Safety
-///
-/// `once` must be a valid, non-null pointer to a live [`Once`] previously
-/// initialized by this library. The pointed-to once must remain valid for the
-/// duration of the call.
-pub unsafe extern "C" fn mlir_sync_call_once_slow_path_prologue(once: *mut Once) -> bool {
-    unsafe { (*once).slow_path_prologue() }
+crate::runtime_export! {
+    /// Arbitrates execution of a Once region after a fast-path completion check.
+    ///
+    /// Returns `true` to exactly one caller, which then owns executing the region
+    /// and must later call [`mlir_sync_call_once_slow_path_epilogue`]. All other
+    /// callers either block until initialization completes or return `false` once
+    /// another execution context has completed it.
+    ///
+    /// # Safety
+    ///
+    /// `once` must be a valid, non-null pointer to a live [`Once`] previously
+    /// initialized by this library. The pointed-to once must remain valid for the
+    /// duration of the call.
+    pub unsafe fn mlir_sync_call_once_slow_path_prologue(once: *mut Once) -> bool {
+        unsafe { (*once).slow_path_prologue() }
+    }
 }
 
-#[unsafe(no_mangle)]
-#[cold]
-/// Publishes completion for a Once region and wakes blocked waiters.
-///
-/// # Safety
-///
-/// `once` must be a valid, non-null pointer to a live [`Once`] previously
-/// initialized by this library. The caller must previously have received
-/// `true` from [`mlir_sync_call_once_slow_path_prologue`] for this same once
-/// instance and must be the execution context responsible for finishing the
-/// initialization region.
-pub unsafe extern "C" fn mlir_sync_call_once_slow_path_epilogue(once: *mut Once) {
-    unsafe { (*once).slow_path_epilogue() }
+crate::runtime_export! {
+    /// Publishes completion for a Once region and wakes blocked waiters.
+    ///
+    /// # Safety
+    ///
+    /// `once` must be a valid, non-null pointer to a live [`Once`] previously
+    /// initialized by this library. The caller must previously have received
+    /// `true` from [`mlir_sync_call_once_slow_path_prologue`] for this same once
+    /// instance and must be the execution context responsible for finishing the
+    /// initialization region.
+    pub unsafe fn mlir_sync_call_once_slow_path_epilogue(once: *mut Once) {
+        unsafe { (*once).slow_path_epilogue() }
+    }
 }
 
 #[cfg(test)]

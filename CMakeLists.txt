@@ -2,6 +2,14 @@ cmake_minimum_required(VERSION 3.28)
 project(Sync LANGUAGES C CXX VERSION 0.1.0)
 
 option(SYNC_ENABLE_TESTS "Build sync dialect integration tests" ON)
+option(MLIR_SYNC_ENABLE_NIGHTLY_FEATURE
+  "Build the Rust runtime with its nightly feature (slow-path symbols exported \
+as extern \"rust-cold\") and annotate the runtime functions and calls emitted \
+by the backend with the preserve_most calling convention" OFF)
+
+if(MLIR_SYNC_ENABLE_NIGHTLY_FEATURE)
+  add_compile_definitions(MLIR_SYNC_ENABLE_NIGHTLY_FEATURE)
+endif()
 
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
@@ -9,6 +17,9 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+# No C++ modules are used; the scanner also breaks with compiler wrappers that
+# inject include paths through the environment (e.g. Nix's NIX_CFLAGS_COMPILE).
+set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 
 include(cmake/FindLLVM.cmake)
 include(cmake/FindMLIR.cmake)

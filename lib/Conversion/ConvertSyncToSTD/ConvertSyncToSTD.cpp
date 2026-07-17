@@ -43,6 +43,30 @@ constexpr uint32_t kRwLockMask = (1u << 30) - 1;
 constexpr uint32_t kRwLockReadersWaiting = 1u << 30;
 constexpr uint32_t kRwLockWritersWaiting = 1u << 31;
 
+// With MLIR_SYNC_ENABLE_NIGHTLY_FEATURE the runtime is compiled with its
+// "nightly" cargo feature, which exports the slow-path symbols with the
+// extern "rust-cold" ABI (LLVM preserve_most). The CConv attribute set here
+// is forwarded verbatim by FuncToLLVM onto the llvm.func / llvm.call ops.
+void setRuntimeCallingConvention(mlir::Operation *op) {
+#ifdef MLIR_SYNC_ENABLE_NIGHTLY_FEATURE
+  op->getContext()->getOrLoadDialect<mlir::LLVM::LLVMDialect>();
+  op->setAttr("CConv",
+              mlir::LLVM::CConvAttr::get(op->getContext(),
+                                         mlir::LLVM::CConv::PreserveMost));
+#else
+  (void)op;
+#endif
+}
+
+mlir::func::CallOp createRuntimeCall(mlir::PatternRewriter &rewriter,
+                                     mlir::Location loc,
+                                     mlir::func::FuncOp callee,
+                                     mlir::ValueRange operands) {
+  auto call = mlir::func::CallOp::create(rewriter, loc, callee, operands);
+  setRuntimeCallingConvention(call);
+  return call;
+}
+
 mlir::func::FuncOp getOrCreateRuntimeFunc(mlir::Location loc,
                                           llvm::StringRef name,
                                           mlir::TypeRange argumentTypes,
@@ -55,6 +79,7 @@ mlir::func::FuncOp getOrCreateRuntimeFunc(mlir::Location loc,
                   rewriter.getArrayAttr({rewriter.getStringAttr("cold"),
                                          rewriter.getStringAttr("nounwind"),
                                          rewriter.getStringAttr("noinline")}));
+    setRuntimeCallingConvention(func);
     return func;
   }
 
@@ -68,6 +93,7 @@ mlir::func::FuncOp getOrCreateRuntimeFunc(mlir::Location loc,
                 rewriter.getArrayAttr({rewriter.getStringAttr("cold"),
                                        rewriter.getStringAttr("nounwind"),
                                        rewriter.getStringAttr("noinline")}));
+  setRuntimeCallingConvention(func);
   return func;
 }
 
@@ -335,9 +361,9 @@ void emitCombiningLockSlowPath(
     combineLimit = combineLimitAttr.getInt();
   auto combineLimitValue =
       mlir::arith::ConstantIntOp::create(rewriter, loc, combineLimit, 64);
-  mlir::func::CallOp::create(rewriter, loc, attachFunc,
-                             mlir::ValueRange{nodePtr, lockPtr,
-                                              combineLimitValue.getResult()});
+  createRuntimeCall(rewriter, loc, attachFunc,
+                    mlir::ValueRange{nodePtr, lockPtr,
+                                     combineLimitValue.getResult()});
   SyncCombiningLockCaptureEndOp::create(rewriter, loc, rawNode);
 }
 
@@ -359,8 +385,8 @@ struct RawMutexLockLowering : public mlir::OpRewritePattern<SyncRawMutexLockOp> 
         loc, acquired,
         [&]() {
           auto ptr = materializeRuntimePtr(loc, op.getMutex(), ptrType, rewriter);
-          mlir::func::CallOp::create(rewriter, loc, slowPathFunc,
-                                     mlir::ValueRange{ptr});
+          createRuntimeCall(rewriter, loc, slowPathFunc,
+                            mlir::ValueRange{ptr});
         },
         rewriter);
 
@@ -441,8 +467,8 @@ struct OnceExecuteLowering
                                            /*withElseRegion=*/true);
     rewriter.setInsertionPointToStart(outerIf.elseBlock());
     auto ptr = materializeRuntimePtr(loc, op.getOnce(), ptrType, rewriter);
-    auto execute = mlir::func::CallOp::create(rewriter, loc, prologueFunc,
-                                              mlir::ValueRange{ptr});
+    auto execute = createRuntimeCall(rewriter, loc, prologueFunc,
+                                     mlir::ValueRange{ptr});
     auto innerIf = mlir::scf::IfOp::create(rewriter, loc, execute.getResult(0),
                                            /*withElseRegion=*/true);
     rewriter.setInsertionPointToStart(innerIf.thenBlock());
@@ -452,7 +478,7 @@ struct OnceExecuteLowering
     rewriter.inlineBlockBefore(&bodyBlock, innerIf.thenBlock()->getTerminator(),
                                mlir::ValueRange{});
     rewriter.setInsertionPoint(innerIf.thenBlock()->getTerminator());
-    mlir::func::CallOp::create(rewriter, loc, epilogueFunc, mlir::ValueRange{ptr});
+    createRuntimeCall(rewriter, loc, epilogueFunc, mlir::ValueRange{ptr});
 
     rewriter.eraseOp(op);
     return mlir::success();
@@ -605,8 +631,8 @@ struct RawMutexUnlockLowering
         [&]() {
           auto slowPathPtr =
               materializeRuntimePtr(loc, op.getMutex(), ptrType, rewriter);
-          mlir::func::CallOp::create(rewriter, loc, unlockSlowFunc,
-                                     mlir::ValueRange{slowPathPtr});
+          createRuntimeCall(rewriter, loc, unlockSlowFunc,
+                            mlir::ValueRange{slowPathPtr});
         },
         rewriter);
 
@@ -634,8 +660,8 @@ struct RawRwLockReadLockLowering
         loc, acquired,
         [&]() {
           auto ptr = materializeRuntimePtr(loc, op.getRwlock(), ptrType, rewriter);
-          mlir::func::CallOp::create(rewriter, loc, slowPathFunc,
-                                     mlir::ValueRange{ptr});
+          createRuntimeCall(rewriter, loc, slowPathFunc,
+                            mlir::ValueRange{ptr});
         },
         rewriter);
     rewriter.eraseOp(op);
@@ -664,8 +690,8 @@ struct RawRwLockReadUnlockLowering
         loc, needsWake,
         [&]() {
           auto ptr = materializeRuntimePtr(loc, op.getRwlock(), ptrType, rewriter);
-          mlir::func::CallOp::create(rewriter, loc, unlockSlowFunc,
-                                     mlir::ValueRange{ptr, state});
+          createRuntimeCall(rewriter, loc, unlockSlowFunc,
+                            mlir::ValueRange{ptr, state});
         },
         rewriter);
     rewriter.eraseOp(op);
@@ -692,8 +718,8 @@ struct RawRwLockWriteLockLowering
         loc, acquired,
         [&]() {
           auto ptr = materializeRuntimePtr(loc, op.getRwlock(), ptrType, rewriter);
-          mlir::func::CallOp::create(rewriter, loc, slowPathFunc,
-                                     mlir::ValueRange{ptr});
+          createRuntimeCall(rewriter, loc, slowPathFunc,
+                            mlir::ValueRange{ptr});
         },
         rewriter);
     rewriter.eraseOp(op);
@@ -722,8 +748,8 @@ struct RawRwLockWriteUnlockLowering
         loc, needsWake,
         [&]() {
           auto ptr = materializeRuntimePtr(loc, op.getRwlock(), ptrType, rewriter);
-          mlir::func::CallOp::create(rewriter, loc, unlockSlowFunc,
-                                     mlir::ValueRange{ptr, state});
+          createRuntimeCall(rewriter, loc, unlockSlowFunc,
+                            mlir::ValueRange{ptr, state});
         },
         rewriter);
     rewriter.eraseOp(op);

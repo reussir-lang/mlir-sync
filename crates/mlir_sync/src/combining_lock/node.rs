@@ -155,16 +155,16 @@ impl Node {
     }
 }
 
-#[unsafe(no_mangle)]
-#[cold]
-unsafe extern "C" fn mlir_sync_combining_lock_attach_slow_path(
-    node: *mut Node,
-    raw: *mut RawLock,
-    combine_limit: usize,
-) {
-    let node = unsafe { NonNull::new_unchecked(node) };
-    let raw = unsafe { &*raw };
-    Node::attach(node, raw, combine_limit);
+crate::runtime_export! {
+    unsafe fn mlir_sync_combining_lock_attach_slow_path(
+        node: *mut Node,
+        raw: *mut RawLock,
+        combine_limit: usize,
+    ) {
+        let node = unsafe { NonNull::new_unchecked(node) };
+        let raw = unsafe { &*raw };
+        Node::attach(node, raw, combine_limit);
+    }
 }
 
 #[cfg(test)]
