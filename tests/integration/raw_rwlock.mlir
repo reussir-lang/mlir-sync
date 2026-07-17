@@ -50,9 +50,9 @@ module {
 // ROUNDTRIP: sync.raw_rwlock.write_lock
 // ROUNDTRIP: sync.raw_rwlock.write_unlock
 
-// STD-DAG: func.func private @mlir_sync_rwlock_read_lock_slow_path(!ptr.ptr<#ptr.generic_space>) attributes {no_inline, passthrough = ["cold", "nounwind", "noinline"]}
-// STD-DAG: func.func private @mlir_sync_rwlock_write_lock_slow_path(!ptr.ptr<#ptr.generic_space>) attributes {no_inline, passthrough = ["cold", "nounwind", "noinline"]}
-// STD-DAG: func.func private @mlir_sync_rwlock_unlock_slow_path(!ptr.ptr<#ptr.generic_space>, i32) attributes {no_inline, passthrough = ["cold", "nounwind", "noinline"]}
+// STD-DAG: func.func private @mlir_sync_rwlock_read_lock_slow_path(!ptr.ptr<#ptr.generic_space>) attributes {{[{](CConv = #llvm\.cconv<preserve_mostcc>, )?}}no_inline, passthrough = ["cold", "nounwind", "noinline"]}
+// STD-DAG: func.func private @mlir_sync_rwlock_write_lock_slow_path(!ptr.ptr<#ptr.generic_space>) attributes {{[{](CConv = #llvm\.cconv<preserve_mostcc>, )?}}no_inline, passthrough = ["cold", "nounwind", "noinline"]}
+// STD-DAG: func.func private @mlir_sync_rwlock_unlock_slow_path(!ptr.ptr<#ptr.generic_space>, i32) attributes {{[{](CConv = #llvm\.cconv<preserve_mostcc>, )?}}no_inline, passthrough = ["cold", "nounwind", "noinline"]}
 // STD-LABEL: func.func @try_read_then_unlock() -> i1 {
 // STD: %[[TRYREAD:.+]]:2 = scf.while
 // STD: %[[STATE:.+]] = sync.raw_rwlock.load_state %{{.*}} : memref<!sync.raw_rwlock>
@@ -66,7 +66,7 @@ module {
 // STD: }
 // STD: %[[UNLOCK:.+]] = sync.raw_rwlock.read_unlock_fast %{{.*}} : memref<!sync.raw_rwlock>
 // STD: scf.if %{{.*}} {
-// STD: func.call @mlir_sync_rwlock_unlock_slow_path(%{{.*}}, %[[UNLOCK]]) : (!ptr.ptr<#ptr.generic_space>, i32) -> ()
+// STD: func.call @mlir_sync_rwlock_unlock_slow_path(%{{.*}}, %[[UNLOCK]]){{( \{CConv = #llvm\.cconv<preserve_mostcc>\})?}} : (!ptr.ptr<#ptr.generic_space>, i32) -> ()
 // STD: }
 // STD: return %[[TRYREAD]]#1 : i1
 // STD-LABEL: func.func @read_lock_unlock_once() {
@@ -82,11 +82,11 @@ module {
 // STD: }
 // STD: scf.if %[[READLOCK]]#1 {
 // STD: } else {
-// STD: func.call @mlir_sync_rwlock_read_lock_slow_path(%{{.*}}) : (!ptr.ptr<#ptr.generic_space>) -> ()
+// STD: func.call @mlir_sync_rwlock_read_lock_slow_path(%{{.*}}){{( \{CConv = #llvm\.cconv<preserve_mostcc>\})?}} : (!ptr.ptr<#ptr.generic_space>) -> ()
 // STD: }
 // STD: %[[UNLOCK:.+]] = sync.raw_rwlock.read_unlock_fast %{{.*}} : memref<!sync.raw_rwlock>
 // STD: scf.if %{{.*}} {
-// STD: func.call @mlir_sync_rwlock_unlock_slow_path(%{{.*}}, %[[UNLOCK]]) : (!ptr.ptr<#ptr.generic_space>, i32) -> ()
+// STD: func.call @mlir_sync_rwlock_unlock_slow_path(%{{.*}}, %[[UNLOCK]]){{( \{CConv = #llvm\.cconv<preserve_mostcc>\})?}} : (!ptr.ptr<#ptr.generic_space>, i32) -> ()
 // STD: }
 // STD-LABEL: func.func @try_write_then_unlock() -> i1 {
 // STD: %[[TRYWRITE:.+]]:2 = scf.while
@@ -99,7 +99,7 @@ module {
 // STD: }
 // STD: %[[UNLOCK:.+]] = sync.raw_rwlock.write_unlock_fast %{{.*}} : memref<!sync.raw_rwlock>
 // STD: scf.if %{{.*}} {
-// STD: func.call @mlir_sync_rwlock_unlock_slow_path(%{{.*}}, %[[UNLOCK]]) : (!ptr.ptr<#ptr.generic_space>, i32) -> ()
+// STD: func.call @mlir_sync_rwlock_unlock_slow_path(%{{.*}}, %[[UNLOCK]]){{( \{CConv = #llvm\.cconv<preserve_mostcc>\})?}} : (!ptr.ptr<#ptr.generic_space>, i32) -> ()
 // STD: }
 // STD: return %[[TRYWRITE]]#1 : i1
 // STD-LABEL: func.func @write_lock_unlock_once() {
@@ -113,36 +113,36 @@ module {
 // STD: }
 // STD: scf.if %[[WRITELOCK]]#1 {
 // STD: } else {
-// STD: func.call @mlir_sync_rwlock_write_lock_slow_path(%{{.*}}) : (!ptr.ptr<#ptr.generic_space>) -> ()
+// STD: func.call @mlir_sync_rwlock_write_lock_slow_path(%{{.*}}){{( \{CConv = #llvm\.cconv<preserve_mostcc>\})?}} : (!ptr.ptr<#ptr.generic_space>) -> ()
 // STD: }
 // STD: %[[UNLOCK:.+]] = sync.raw_rwlock.write_unlock_fast %{{.*}} : memref<!sync.raw_rwlock>
 // STD: scf.if %{{.*}} {
-// STD: func.call @mlir_sync_rwlock_unlock_slow_path(%{{.*}}, %[[UNLOCK]]) : (!ptr.ptr<#ptr.generic_space>, i32) -> ()
+// STD: func.call @mlir_sync_rwlock_unlock_slow_path(%{{.*}}, %[[UNLOCK]]){{( \{CConv = #llvm\.cconv<preserve_mostcc>\})?}} : (!ptr.ptr<#ptr.generic_space>, i32) -> ()
 // STD: }
 
-// LOWER-DAG: llvm.func @mlir_sync_rwlock_read_lock_slow_path(!llvm.ptr) attributes {passthrough = ["cold", "nounwind", "noinline"], sym_visibility = "private"}
-// LOWER-DAG: llvm.func @mlir_sync_rwlock_write_lock_slow_path(!llvm.ptr) attributes {passthrough = ["cold", "nounwind", "noinline"], sym_visibility = "private"}
-// LOWER-DAG: llvm.func @mlir_sync_rwlock_unlock_slow_path(!llvm.ptr, i32) attributes {passthrough = ["cold", "nounwind", "noinline"], sym_visibility = "private"}
+// LOWER-DAG: llvm.func{{( preserve_mostcc)?}} @mlir_sync_rwlock_read_lock_slow_path(!llvm.ptr) attributes {passthrough = ["cold", "nounwind", "noinline"], sym_visibility = "private"}
+// LOWER-DAG: llvm.func{{( preserve_mostcc)?}} @mlir_sync_rwlock_write_lock_slow_path(!llvm.ptr) attributes {passthrough = ["cold", "nounwind", "noinline"], sym_visibility = "private"}
+// LOWER-DAG: llvm.func{{( preserve_mostcc)?}} @mlir_sync_rwlock_unlock_slow_path(!llvm.ptr, i32) attributes {passthrough = ["cold", "nounwind", "noinline"], sym_visibility = "private"}
 // LOWER-LABEL: llvm.func @try_read_then_unlock() -> i1 {
 // LOWER: llvm.load
 // LOWER: llvm.cmpxchg
 // LOWER: llvm.atomicrmw sub
-// LOWER: llvm.call @mlir_sync_rwlock_unlock_slow_path
+// LOWER: llvm.call{{( preserve_mostcc)?}} @mlir_sync_rwlock_unlock_slow_path
 // LOWER: llvm.return
 // LOWER-LABEL: llvm.func @read_lock_unlock_once() {
 // LOWER: llvm.cmpxchg
-// LOWER: llvm.call @mlir_sync_rwlock_read_lock_slow_path
+// LOWER: llvm.call{{( preserve_mostcc)?}} @mlir_sync_rwlock_read_lock_slow_path
 // LOWER: llvm.atomicrmw sub
-// LOWER: llvm.call @mlir_sync_rwlock_unlock_slow_path
+// LOWER: llvm.call{{( preserve_mostcc)?}} @mlir_sync_rwlock_unlock_slow_path
 // LOWER: llvm.return
 // LOWER-LABEL: llvm.func @try_write_then_unlock() -> i1 {
 // LOWER: llvm.cmpxchg
 // LOWER: llvm.atomicrmw sub
-// LOWER: llvm.call @mlir_sync_rwlock_unlock_slow_path
+// LOWER: llvm.call{{( preserve_mostcc)?}} @mlir_sync_rwlock_unlock_slow_path
 // LOWER: llvm.return
 // LOWER-LABEL: llvm.func @write_lock_unlock_once() {
 // LOWER: llvm.cmpxchg
-// LOWER: llvm.call @mlir_sync_rwlock_write_lock_slow_path
+// LOWER: llvm.call{{( preserve_mostcc)?}} @mlir_sync_rwlock_write_lock_slow_path
 // LOWER: llvm.atomicrmw sub
-// LOWER: llvm.call @mlir_sync_rwlock_unlock_slow_path
+// LOWER: llvm.call{{( preserve_mostcc)?}} @mlir_sync_rwlock_unlock_slow_path
 // LOWER: llvm.return

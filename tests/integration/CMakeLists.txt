@@ -22,12 +22,18 @@ set(sync_cargo_target_dir ${CMAKE_BINARY_DIR}/cargo)
 set(sync_runtime_lib_path
   ${sync_cargo_target_dir}/release/${CMAKE_STATIC_LIBRARY_PREFIX}mlir_sync${CMAKE_STATIC_LIBRARY_SUFFIX})
 
+set(sync_cargo_features panic-handler)
+if(MLIR_SYNC_ENABLE_NIGHTLY_FEATURE)
+  list(APPEND sync_cargo_features nightly)
+endif()
+list(JOIN sync_cargo_features "," sync_cargo_features)
+
 add_custom_command(
   OUTPUT ${sync_runtime_lib_path}
   COMMAND ${CMAKE_COMMAND} -E env
           CARGO_TARGET_DIR=${sync_cargo_target_dir}
           ${cargo_path} rustc -p mlir_sync --release
-          --crate-type staticlib --features panic-handler
+          --crate-type staticlib --features ${sync_cargo_features}
   WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
   DEPENDS
     ${CMAKE_SOURCE_DIR}/Cargo.toml

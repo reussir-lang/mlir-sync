@@ -66,13 +66,13 @@ module {
 // STD: arith.constant -1 : i64
 
 // LLVM-LABEL: llvm.func internal @__sync_combining_lock_slow_{{[0-9]+}}(%arg0: !llvm.ptr) attributes {passthrough = ["cold"], sym_visibility = "private"}
-// LLVM: llvm.func @mlir_sync_combining_lock_attach_slow_path(!llvm.ptr, !llvm.ptr, i64) attributes {passthrough = ["cold", "nounwind", "noinline"], sym_visibility = "private"}
+// LLVM: llvm.func{{( preserve_mostcc)?}} @mlir_sync_combining_lock_attach_slow_path(!llvm.ptr, !llvm.ptr, i64) attributes {passthrough = ["cold", "nounwind", "noinline"], sym_visibility = "private"}
 // LLVM-LABEL: llvm.func @combining_lock_capture_shape
 // LLVM: llvm.atomicrmw xchg
 // LLVM: llvm.alloca
 // LLVM: llvm.intr.lifetime.start
 // LLVM: llvm.store %{{.*}}, %{{.*}} invariant_group : !llvm.ptr, !llvm.ptr
-// LLVM: llvm.call @mlir_sync_combining_lock_attach_slow_path
+// LLVM: llvm.call{{( preserve_mostcc)?}} @mlir_sync_combining_lock_attach_slow_path
 // LLVM: llvm.intr.lifetime.end
 
 // LLVM-LABEL: llvm.func @combining_lock_default_limit

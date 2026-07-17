@@ -27,8 +27,8 @@ module {
 // ROUNDTRIP: sync.raw_mutex.lock
 // ROUNDTRIP: sync.raw_mutex.unlock
 
-// STD-DAG: func.func private @mlir_sync_mutex_lock_slow_path(!ptr.ptr<#ptr.generic_space>) attributes {no_inline, passthrough = ["cold", "nounwind", "noinline"]}
-// STD-DAG: func.func private @mlir_sync_mutex_unlock_slow_path(!ptr.ptr<#ptr.generic_space>) attributes {no_inline, passthrough = ["cold", "nounwind", "noinline"]}
+// STD-DAG: func.func private @mlir_sync_mutex_lock_slow_path(!ptr.ptr<#ptr.generic_space>) attributes {{[{](CConv = #llvm\.cconv<preserve_mostcc>, )?}}no_inline, passthrough = ["cold", "nounwind", "noinline"]}
+// STD-DAG: func.func private @mlir_sync_mutex_unlock_slow_path(!ptr.ptr<#ptr.generic_space>) attributes {{[{](CConv = #llvm\.cconv<preserve_mostcc>, )?}}no_inline, passthrough = ["cold", "nounwind", "noinline"]}
 // STD: func.func @try_lock_once() -> i1
 // STD: %[[MUTEX:.+]] = memref.alloca() : memref<!sync.raw_mutex>
 // STD: sync.raw_mutex.init %[[MUTEX]]
@@ -40,17 +40,17 @@ module {
 // STD: } else {
 // STD: %[[LOCK_CAST:.+]] = memref.memory_space_cast %[[MUTEX]] : memref<!sync.raw_mutex> to memref<!sync.raw_mutex, #ptr.generic_space>
 // STD: %[[PTR:.+]] = ptr.to_ptr %[[LOCK_CAST]] : memref<!sync.raw_mutex, #ptr.generic_space> -> <#ptr.generic_space>
-// STD: {{(func\.)?call}} @mlir_sync_mutex_lock_slow_path(%[[PTR]]) : (!ptr.ptr<#ptr.generic_space>) -> ()
+// STD: {{(func\.)?call}} @mlir_sync_mutex_lock_slow_path(%[[PTR]]){{( \{CConv = #llvm\.cconv<preserve_mostcc>\})?}} : (!ptr.ptr<#ptr.generic_space>) -> ()
 // STD: }
 // STD: %[[NEEDS_WAKE:.+]] = sync.raw_mutex.unlock_fast %[[MUTEX]] : memref<!sync.raw_mutex>
 // STD: scf.if %[[NEEDS_WAKE]] {
 // STD: %[[UNLOCK_CAST:.+]] = memref.memory_space_cast %[[MUTEX]] : memref<!sync.raw_mutex> to memref<!sync.raw_mutex, #ptr.generic_space>
 // STD: %[[SLOW_PTR:.+]] = ptr.to_ptr %[[UNLOCK_CAST]] : memref<!sync.raw_mutex, #ptr.generic_space> -> <#ptr.generic_space>
-// STD: {{(func\.)?call}} @mlir_sync_mutex_unlock_slow_path(%[[SLOW_PTR]]) : (!ptr.ptr<#ptr.generic_space>) -> ()
+// STD: {{(func\.)?call}} @mlir_sync_mutex_unlock_slow_path(%[[SLOW_PTR]]){{( \{CConv = #llvm\.cconv<preserve_mostcc>\})?}} : (!ptr.ptr<#ptr.generic_space>) -> ()
 // STD: }
 
-// LOWER-DAG: llvm.func @mlir_sync_mutex_lock_slow_path(!llvm.ptr) attributes {passthrough = ["cold", "nounwind", "noinline"], sym_visibility = "private"}
-// LOWER-DAG: llvm.func @mlir_sync_mutex_unlock_slow_path(!llvm.ptr) attributes {passthrough = ["cold", "nounwind", "noinline"], sym_visibility = "private"}
+// LOWER-DAG: llvm.func{{( preserve_mostcc)?}} @mlir_sync_mutex_lock_slow_path(!llvm.ptr) attributes {passthrough = ["cold", "nounwind", "noinline"], sym_visibility = "private"}
+// LOWER-DAG: llvm.func{{( preserve_mostcc)?}} @mlir_sync_mutex_unlock_slow_path(!llvm.ptr) attributes {passthrough = ["cold", "nounwind", "noinline"], sym_visibility = "private"}
 // LOWER: llvm.func @try_lock_once() -> i1 {
 // LOWER: llvm.store
 // LOWER: llvm.cmpxchg
@@ -59,7 +59,7 @@ module {
 // LOWER: llvm.func @lock_unlock_once()
 // LOWER: llvm.cmpxchg
 // LOWER: llvm.addrspacecast
-// LOWER: llvm.call @mlir_sync_mutex_lock_slow_path
+// LOWER: llvm.call{{( preserve_mostcc)?}} @mlir_sync_mutex_lock_slow_path
 // LOWER: llvm.atomicrmw xchg
 // LOWER: llvm.cond_br
-// LOWER: llvm.call @mlir_sync_mutex_unlock_slow_path
+// LOWER: llvm.call{{( preserve_mostcc)?}} @mlir_sync_mutex_unlock_slow_path

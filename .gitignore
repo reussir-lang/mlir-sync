@@ -1,6 +1,7 @@
 /target
 /build
 /build-*/
+/CMakeUserPresets.json
 /cmake-build-*/
 /compile_commands.json
 /.cache

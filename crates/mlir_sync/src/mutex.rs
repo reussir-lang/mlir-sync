@@ -112,30 +112,30 @@ impl Default for Mutex {
     }
 }
 
-#[unsafe(no_mangle)]
-#[cold]
-/// Continues a contended lock operation from the C ABI surface.
-///
-/// # Safety
-///
-/// `mutex` must be a valid, non-null pointer to a live [`Mutex`] previously
-/// initialized by this library. The pointed-to mutex must remain valid for the
-/// duration of the call.
-pub unsafe extern "C" fn mlir_sync_mutex_lock_slow_path(mutex: *mut Mutex) {
-    unsafe { (*mutex).lock_contended() }
+crate::runtime_export! {
+    /// Continues a contended lock operation from the C ABI surface.
+    ///
+    /// # Safety
+    ///
+    /// `mutex` must be a valid, non-null pointer to a live [`Mutex`] previously
+    /// initialized by this library. The pointed-to mutex must remain valid for the
+    /// duration of the call.
+    pub unsafe fn mlir_sync_mutex_lock_slow_path(mutex: *mut Mutex) {
+        unsafe { (*mutex).lock_contended() }
+    }
 }
 
-#[unsafe(no_mangle)]
-#[cold]
-/// Wakes a waiter for a contended mutex from the C ABI surface.
-///
-/// # Safety
-///
-/// `mutex` must be a valid, non-null pointer to a live [`Mutex`] previously
-/// initialized by this library. The pointed-to mutex must remain valid for the
-/// duration of the call.
-pub unsafe extern "C" fn mlir_sync_mutex_unlock_slow_path(mutex: *mut Mutex) {
-    unsafe { (*mutex).wake() }
+crate::runtime_export! {
+    /// Wakes a waiter for a contended mutex from the C ABI surface.
+    ///
+    /// # Safety
+    ///
+    /// `mutex` must be a valid, non-null pointer to a live [`Mutex`] previously
+    /// initialized by this library. The pointed-to mutex must remain valid for the
+    /// duration of the call.
+    pub unsafe fn mlir_sync_mutex_unlock_slow_path(mutex: *mut Mutex) {
+        unsafe { (*mutex).wake() }
+    }
 }
 
 #[cfg(test)]

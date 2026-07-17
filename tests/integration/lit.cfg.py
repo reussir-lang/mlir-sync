@@ -9,6 +9,14 @@ config.suffixes = [".mlir"]
 config.test_source_root = os.path.dirname(__file__)
 config.test_exec_root = os.path.join(config.test_output_root, "test")
 
+# Toolchain wrappers that inject flags through the environment (e.g. Nix's
+# clang wrapper reading NIX_CFLAGS_COMPILE/NIX_LDFLAGS, which are only honored
+# together with the wrapper's NIX_CC_WRAPPER_* role markers) need these
+# variables to survive lit's environment scrubbing.
+for _var, _value in os.environ.items():
+    if _var.startswith("NIX_") or _var in ("LIBRARY_PATH", "LD_LIBRARY_PATH"):
+        config.environment[_var] = _value
+
 sync_runtime_link = config.sync_runtime_lib_path
 if getattr(config, "host_system", "") == "Windows":
     sync_runtime_link += " -lsynchronization"
