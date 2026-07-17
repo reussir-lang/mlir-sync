@@ -39,23 +39,32 @@ constexpr llvm::StringLiteral kCombiningAttachSlowPath =
     "mlir_sync_combining_lock_attach_slow_path";
 constexpr llvm::StringLiteral kCombiningWrapperPrefix =
     "__sync_combining_lock_slow_";
+constexpr llvm::StringLiteral kTrampolinePrefix = "__sync_trampoline_";
 constexpr uint32_t kRwLockMask = (1u << 30) - 1;
 constexpr uint32_t kRwLockReadersWaiting = 1u << 30;
 constexpr uint32_t kRwLockWritersWaiting = 1u << 31;
 
-// With MLIR_SYNC_ENABLE_NIGHTLY_FEATURE the runtime is compiled with its
-// "nightly" cargo feature, which exports the slow-path symbols with the
-// extern "rust-cold" ABI (LLVM preserve_most). The CConv attribute set here
-// is forwarded verbatim by FuncToLLVM onto the llvm.func / llvm.call ops.
-void setRuntimeCallingConvention(mlir::Operation *op) {
-#ifdef MLIR_SYNC_ENABLE_NIGHTLY_FEATURE
+// The runtime exports its slow-path entry points with the plain C calling
+// convention. To keep the lock fast paths free of caller-saved register
+// spills, every slow-path call is routed through an internal preserve_most
+// trampoline that forwards to the C entry point: the spilling then happens
+// once, inside the cold trampoline, instead of at every call site. The CConv
+// attribute set here is forwarded verbatim by FuncToLLVM onto the llvm.func /
+// llvm.call ops.
+void setPreserveMostCallingConvention(mlir::Operation *op) {
   op->getContext()->getOrLoadDialect<mlir::LLVM::LLVMDialect>();
   op->setAttr("CConv",
               mlir::LLVM::CConvAttr::get(op->getContext(),
                                          mlir::LLVM::CConv::PreserveMost));
-#else
-  (void)op;
-#endif
+}
+
+void setColdRuntimeAttributes(mlir::func::FuncOp func,
+                              mlir::PatternRewriter &rewriter) {
+  func.setNoInline(true);
+  func->setAttr("passthrough",
+                rewriter.getArrayAttr({rewriter.getStringAttr("cold"),
+                                       rewriter.getStringAttr("nounwind"),
+                                       rewriter.getStringAttr("noinline")}));
 }
 
 mlir::func::CallOp createRuntimeCall(mlir::PatternRewriter &rewriter,
@@ -63,7 +72,7 @@ mlir::func::CallOp createRuntimeCall(mlir::PatternRewriter &rewriter,
                                      mlir::func::FuncOp callee,
                                      mlir::ValueRange operands) {
   auto call = mlir::func::CallOp::create(rewriter, loc, callee, operands);
-  setRuntimeCallingConvention(call);
+  setPreserveMostCallingConvention(call);
   return call;
 }
 
@@ -74,12 +83,7 @@ mlir::func::FuncOp getOrCreateRuntimeFunc(mlir::Location loc,
                                           mlir::ModuleOp moduleOp,
                                           mlir::PatternRewriter &rewriter) {
   if (auto func = moduleOp.lookupSymbol<mlir::func::FuncOp>(name)) {
-    func.setNoInline(true);
-    func->setAttr("passthrough",
-                  rewriter.getArrayAttr({rewriter.getStringAttr("cold"),
-                                         rewriter.getStringAttr("nounwind"),
-                                         rewriter.getStringAttr("noinline")}));
-    setRuntimeCallingConvention(func);
+    setColdRuntimeAttributes(func, rewriter);
     return func;
   }
 
@@ -88,13 +92,42 @@ mlir::func::FuncOp getOrCreateRuntimeFunc(mlir::Location loc,
   auto fnType = rewriter.getFunctionType(argumentTypes, resultTypes);
   auto func = mlir::func::FuncOp::create(rewriter, loc, name, fnType);
   func.setPrivate();
-  func.setNoInline(true);
-  func->setAttr("passthrough",
-                rewriter.getArrayAttr({rewriter.getStringAttr("cold"),
-                                       rewriter.getStringAttr("nounwind"),
-                                       rewriter.getStringAttr("noinline")}));
-  setRuntimeCallingConvention(func);
+  setColdRuntimeAttributes(func, rewriter);
   return func;
+}
+
+mlir::func::FuncOp getOrCreateRuntimeTrampoline(mlir::Location loc,
+                                                llvm::StringRef name,
+                                                mlir::TypeRange argumentTypes,
+                                                mlir::TypeRange resultTypes,
+                                                mlir::ModuleOp moduleOp,
+                                                mlir::PatternRewriter &rewriter) {
+  std::string trampolineName = (kTrampolinePrefix + name).str();
+  if (auto func = moduleOp.lookupSymbol<mlir::func::FuncOp>(trampolineName))
+    return func;
+
+  auto runtimeFunc = getOrCreateRuntimeFunc(loc, name, argumentTypes,
+                                            resultTypes, moduleOp, rewriter);
+
+  mlir::OpBuilder::InsertionGuard guard(rewriter);
+  rewriter.setInsertionPointToStart(moduleOp.getBody());
+  auto fnType = rewriter.getFunctionType(argumentTypes, resultTypes);
+  auto trampoline =
+      mlir::func::FuncOp::create(rewriter, loc, trampolineName, fnType);
+  trampoline.setPrivate();
+  setColdRuntimeAttributes(trampoline, rewriter);
+  trampoline->setAttr("llvm.linkage",
+                      mlir::LLVM::LinkageAttr::get(
+                          moduleOp.getContext(),
+                          mlir::LLVM::linkage::Linkage::Internal));
+  setPreserveMostCallingConvention(trampoline);
+
+  auto *entryBlock = trampoline.addEntryBlock();
+  rewriter.setInsertionPointToStart(entryBlock);
+  auto forwarded = mlir::func::CallOp::create(rewriter, loc, runtimeFunc,
+                                              entryBlock->getArguments());
+  mlir::func::ReturnOp::create(rewriter, loc, forwarded.getResults());
+  return trampoline;
 }
 
 mlir::ptr::PtrType getRuntimePtrType(mlir::Value mutex) {
@@ -348,7 +381,7 @@ void emitCombiningLockSlowPath(
 
   auto nodePtrType = getRuntimePtrType(node);
   auto lockPtrType = getRuntimePtrType(op.getLock());
-  auto attachFunc = getOrCreateRuntimeFunc(
+  auto attachFunc = getOrCreateRuntimeTrampoline(
       loc, kCombiningAttachSlowPath,
       {nodePtrType, lockPtrType, rewriter.getI64Type()}, {}, moduleOp,
       rewriter);
@@ -375,9 +408,9 @@ struct RawMutexLockLowering : public mlir::OpRewritePattern<SyncRawMutexLockOp> 
     auto loc = op.getLoc();
     auto moduleOp = op->getParentOfType<mlir::ModuleOp>();
     auto ptrType = getRuntimePtrType(op.getMutex());
-    auto slowPathFunc =
-        getOrCreateRuntimeFunc(loc, kLockSlowPath, {ptrType}, {}, moduleOp,
-                               rewriter);
+    auto slowPathFunc = getOrCreateRuntimeTrampoline(loc, kLockSlowPath,
+                                                     {ptrType}, {}, moduleOp,
+                                                     rewriter);
     auto acquired = SyncRawMutexTryLockOp::create(rewriter, loc, rewriter.getI1Type(),
                                                   op.getMutex())
                         .getResult();
@@ -454,10 +487,10 @@ struct OnceExecuteLowering
     auto loc = op.getLoc();
     auto moduleOp = op->getParentOfType<mlir::ModuleOp>();
     auto ptrType = getRuntimePtrType(op.getOnce());
-    auto prologueFunc = getOrCreateRuntimeFunc(
+    auto prologueFunc = getOrCreateRuntimeTrampoline(
         loc, kOncePrologueSlowPath, {ptrType}, {rewriter.getI1Type()}, moduleOp,
         rewriter);
-    auto epilogueFunc = getOrCreateRuntimeFunc(
+    auto epilogueFunc = getOrCreateRuntimeTrampoline(
         loc, kOnceEpilogueSlowPath, {ptrType}, {}, moduleOp, rewriter);
     rewriter.setInsertionPoint(op);
 
@@ -619,9 +652,9 @@ struct RawMutexUnlockLowering
     auto loc = op.getLoc();
     auto moduleOp = op->getParentOfType<mlir::ModuleOp>();
     auto ptrType = getRuntimePtrType(op.getMutex());
-    auto unlockSlowFunc =
-        getOrCreateRuntimeFunc(loc, kUnlockSlowPath, {ptrType}, {}, moduleOp,
-                               rewriter);
+    auto unlockSlowFunc = getOrCreateRuntimeTrampoline(loc, kUnlockSlowPath,
+                                                       {ptrType}, {}, moduleOp,
+                                                       rewriter);
     auto needsWake = SyncRawMutexUnlockFastOp::create(rewriter, loc,
                                                       rewriter.getI1Type(),
                                                       op.getMutex())
@@ -650,8 +683,8 @@ struct RawRwLockReadLockLowering
     auto loc = op.getLoc();
     auto moduleOp = op->getParentOfType<mlir::ModuleOp>();
     auto ptrType = getRuntimePtrType(op.getRwlock());
-    auto slowPathFunc = getOrCreateRuntimeFunc(loc, kReadLockSlowPath, {ptrType},
-                                               {}, moduleOp, rewriter);
+    auto slowPathFunc = getOrCreateRuntimeTrampoline(
+        loc, kReadLockSlowPath, {ptrType}, {}, moduleOp, rewriter);
     auto acquired = SyncRawRwLockTryReadLockOp::create(rewriter, loc,
                                                        rewriter.getI1Type(),
                                                        op.getRwlock())
@@ -678,7 +711,7 @@ struct RawRwLockReadUnlockLowering
     auto loc = op.getLoc();
     auto moduleOp = op->getParentOfType<mlir::ModuleOp>();
     auto ptrType = getRuntimePtrType(op.getRwlock());
-    auto unlockSlowFunc = getOrCreateRuntimeFunc(
+    auto unlockSlowFunc = getOrCreateRuntimeTrampoline(
         loc, kRwLockUnlockSlowPath, {ptrType, rewriter.getI32Type()}, {}, moduleOp,
         rewriter);
     auto state = SyncRawRwLockReadUnlockFastOp::create(rewriter, loc,
@@ -708,8 +741,8 @@ struct RawRwLockWriteLockLowering
     auto loc = op.getLoc();
     auto moduleOp = op->getParentOfType<mlir::ModuleOp>();
     auto ptrType = getRuntimePtrType(op.getRwlock());
-    auto slowPathFunc = getOrCreateRuntimeFunc(loc, kWriteLockSlowPath, {ptrType},
-                                               {}, moduleOp, rewriter);
+    auto slowPathFunc = getOrCreateRuntimeTrampoline(
+        loc, kWriteLockSlowPath, {ptrType}, {}, moduleOp, rewriter);
     auto acquired = SyncRawRwLockTryWriteLockOp::create(rewriter, loc,
                                                         rewriter.getI1Type(),
                                                         op.getRwlock())
@@ -736,7 +769,7 @@ struct RawRwLockWriteUnlockLowering
     auto loc = op.getLoc();
     auto moduleOp = op->getParentOfType<mlir::ModuleOp>();
     auto ptrType = getRuntimePtrType(op.getRwlock());
-    auto unlockSlowFunc = getOrCreateRuntimeFunc(
+    auto unlockSlowFunc = getOrCreateRuntimeTrampoline(
         loc, kRwLockUnlockSlowPath, {ptrType, rewriter.getI32Type()}, {}, moduleOp,
         rewriter);
     auto state = SyncRawRwLockWriteUnlockFastOp::create(rewriter, loc,
