@@ -14,8 +14,16 @@ env:
 
 jobs:
   wasm-test:
-    name: wasm / stable
+    name: wasm / ${{ matrix.toolchain }}
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - toolchain: stable
+            command: cargo test --workspace --lib --target wasm32-wasip1-threads
+          - toolchain: nightly
+            command: cargo test --workspace --lib --target wasm32-wasip1-threads --features nightly
 
     steps:
       - name: Checkout repository
@@ -24,7 +32,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: stable
+          toolchain: ${{ matrix.toolchain }}
           targets: wasm32-wasip1-threads
 
       - name: Install Wasmer
@@ -37,4 +45,4 @@ jobs:
         run: sudo "$HOME/.wasmer/bin/wasmer" binfmt register
 
       - name: Run wasm tests
-        run: cargo test --workspace --lib --target wasm32-wasip1-threads
+        run: ${{ matrix.command }}

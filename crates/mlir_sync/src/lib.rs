@@ -1,4 +1,6 @@
 #![no_std]
+#![cfg_attr(feature = "nightly", feature(core_intrinsics))]
+#![cfg_attr(feature = "nightly", allow(internal_features))]
 
 /// Declares a `#[no_mangle]` runtime entry point with the plain C ABI. The
 /// compiler backend keeps its lock fast paths free of caller-saved register

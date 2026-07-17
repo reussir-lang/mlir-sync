@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
+nightly = ["portable_futex/nightly"]
 # Provide a #[panic_handler] and rust_eh_personality for standalone runtime
 # artifacts (staticlib/cdylib). Leave disabled when depending on this crate
 # as a Rust library so the consumer (or std) supplies the panic machinery.
