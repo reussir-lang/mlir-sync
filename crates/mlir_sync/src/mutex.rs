@@ -142,22 +142,22 @@ crate::runtime_export! {
 mod tests {
     extern crate alloc;
     extern crate std;
-    #[cfg(any(not(target_family = "wasm"), feature = "nightly"))]
+    #[cfg(not(target_family = "wasm"))]
     use super::Mutex;
-    #[cfg(any(not(target_family = "wasm"), feature = "nightly"))]
+    #[cfg(not(target_family = "wasm"))]
     use core::cell::UnsafeCell;
-    #[cfg(any(not(target_family = "wasm"), feature = "nightly"))]
+    #[cfg(not(target_family = "wasm"))]
     use std::collections::BTreeMap;
-    #[cfg(any(not(target_family = "wasm"), feature = "nightly"))]
+    #[cfg(not(target_family = "wasm"))]
     use std::thread;
 
-    #[cfg(any(not(target_family = "wasm"), feature = "nightly"))]
+    #[cfg(not(target_family = "wasm"))]
     struct Shared<T> {
         lock: Mutex,
         value: UnsafeCell<T>,
     }
 
-    #[cfg(any(not(target_family = "wasm"), feature = "nightly"))]
+    #[cfg(not(target_family = "wasm"))]
     impl<T> Shared<T> {
         fn new(value: T) -> Self {
             Self {
@@ -179,10 +179,10 @@ mod tests {
     }
 
     // The mutex serializes access to the protected value.
-    #[cfg(any(not(target_family = "wasm"), feature = "nightly"))]
+    #[cfg(not(target_family = "wasm"))]
     unsafe impl<T: Send> Sync for Shared<T> {}
 
-    #[cfg(any(not(target_family = "wasm"), feature = "nightly"))]
+    #[cfg(not(target_family = "wasm"))]
     #[test]
     fn mutex_guards_integer_addition() {
         let shared = Shared::new(0usize);
@@ -203,7 +203,7 @@ mod tests {
         assert_eq!(total, 256);
     }
 
-    #[cfg(any(not(target_family = "wasm"), feature = "nightly"))]
+    #[cfg(not(target_family = "wasm"))]
     #[test]
     fn mutex_guards_string_concatenation() {
         let shared = Shared::new(std::string::String::new());

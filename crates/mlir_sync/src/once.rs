@@ -139,11 +139,11 @@ mod tests {
     extern crate std;
 
     use super::Once;
-    #[cfg(any(not(target_family = "wasm"), feature = "nightly"))]
+    #[cfg(not(target_family = "wasm"))]
     use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-    #[cfg(any(not(target_family = "wasm"), feature = "nightly"))]
+    #[cfg(not(target_family = "wasm"))]
     use std::sync::Barrier;
-    #[cfg(any(not(target_family = "wasm"), feature = "nightly"))]
+    #[cfg(not(target_family = "wasm"))]
     use std::thread;
 
     #[test]
@@ -152,7 +152,7 @@ mod tests {
         assert!(!once.is_completed());
     }
 
-    #[cfg(any(not(target_family = "wasm"), feature = "nightly"))]
+    #[cfg(not(target_family = "wasm"))]
     #[test]
     fn call_once_runs_only_once() {
         let once = Once::new();
@@ -174,7 +174,7 @@ mod tests {
         assert!(once.is_completed());
     }
 
-    #[cfg(any(not(target_family = "wasm"), feature = "nightly"))]
+    #[cfg(not(target_family = "wasm"))]
     #[test]
     fn waiting_threads_block_until_initialization_finishes() {
         let once = Once::new();
@@ -222,7 +222,7 @@ mod tests {
         assert!(once.is_completed());
     }
 
-    #[cfg(any(not(target_family = "wasm"), feature = "nightly"))]
+    #[cfg(not(target_family = "wasm"))]
     #[test]
     fn slow_path_prologue_returns_false_after_completion() {
         let once = Once::new();

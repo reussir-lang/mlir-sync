@@ -1,8 +1,4 @@
 #![no_std]
-#![cfg_attr(
-    all(feature = "nightly", target_family = "wasm"),
-    feature(stdarch_wasm_atomic_wait)
-)]
 
 #[cfg(any(test, miri))]
 extern crate std;
@@ -11,22 +7,6 @@ use core::ops::Deref;
 use core::ptr::NonNull;
 use core::sync::atomic::{AtomicU32, Ordering};
 
-#[cfg(all(
-    feature = "nightly",
-    not(miri),
-    target_family = "wasm",
-    target_feature = "atomics",
-    target_arch = "wasm32"
-))]
-use core::arch::wasm32 as wasm;
-#[cfg(all(
-    feature = "nightly",
-    not(miri),
-    target_family = "wasm",
-    target_feature = "atomics",
-    target_arch = "wasm64"
-))]
-use core::arch::wasm64 as wasm;
 #[cfg(all(not(miri), target_os = "macos"))]
 use core::ffi::{c_int, c_void};
 #[cfg(all(not(miri), target_os = "linux"))]
@@ -129,30 +109,6 @@ impl Futex {
     ///
     /// `this` must point to a valid [`Futex`].
     pub unsafe fn wait(this: NonNull<Self>, expected: u32) {
-        #[cfg(all(
-            feature = "nightly",
-            not(miri),
-            target_family = "wasm",
-            target_feature = "atomics",
-            any(target_arch = "wasm32", target_arch = "wasm64")
-        ))]
-        loop {
-            if unsafe { (*this.as_ptr()).word.load(Ordering::Acquire) } != expected {
-                return;
-            }
-
-            match unsafe {
-                wasm::memory_atomic_wait32(
-                    (*this.as_ptr()).word.as_ptr().cast(),
-                    expected as i32,
-                    -1,
-                )
-            } {
-                0 | 1 | 2 => continue,
-                _ => return,
-            }
-        }
-
         #[cfg(miri)]
         loop {
             if unsafe { (*this.as_ptr()).word.load(Ordering::Acquire) } != expected {
@@ -174,13 +130,7 @@ impl Futex {
 
         #[cfg(all(
             not(miri),
-            not(any(target_os = "linux", target_os = "windows", target_os = "macos")),
-            not(all(
-                feature = "nightly",
-                target_family = "wasm",
-                target_feature = "atomics",
-                any(target_arch = "wasm32", target_arch = "wasm64")
-            ))
+            not(any(target_os = "linux", target_os = "windows", target_os = "macos"))
         ))]
         {
             while unsafe { (*this.as_ptr()).word.load(Ordering::Acquire) } == expected {
@@ -252,17 +202,6 @@ impl Futex {
     ///
     /// `this` must point to a valid [`Futex`].
     pub unsafe fn wake_one(this: NonNull<Self>) -> bool {
-        #[cfg(all(
-            feature = "nightly",
-            not(miri),
-            target_family = "wasm",
-            target_feature = "atomics",
-            any(target_arch = "wasm32", target_arch = "wasm64")
-        ))]
-        return unsafe {
-            wasm::memory_atomic_notify((*this.as_ptr()).word.as_ptr().cast(), 1) != 0
-        };
-
         #[cfg(miri)]
         {
             let waiter = {
@@ -280,15 +219,12 @@ impl Futex {
 
         #[cfg(all(
             not(miri),
-            not(any(target_os = "linux", target_os = "windows", target_os = "macos")),
-            not(all(
-                feature = "nightly",
-                target_family = "wasm",
-                target_feature = "atomics",
-                any(target_arch = "wasm32", target_arch = "wasm64")
-            ))
+            not(any(target_os = "linux", target_os = "windows", target_os = "macos"))
         ))]
-        return false;
+        {
+            let _ = this;
+            return false;
+        }
 
         #[cfg(all(not(miri), target_os = "linux"))]
         {
@@ -325,17 +261,6 @@ impl Futex {
     ///
     /// `this` must point to a valid [`Futex`].
     pub unsafe fn wake_all(this: NonNull<Self>) {
-        #[cfg(all(
-            feature = "nightly",
-            not(miri),
-            target_family = "wasm",
-            target_feature = "atomics",
-            any(target_arch = "wasm32", target_arch = "wasm64")
-        ))]
-        unsafe {
-            wasm::memory_atomic_notify((*this.as_ptr()).word.as_ptr().cast(), i32::MAX as u32);
-        }
-
         #[cfg(miri)]
         {
             let waiters = {
@@ -352,15 +277,11 @@ impl Futex {
 
         #[cfg(all(
             not(miri),
-            not(any(target_os = "linux", target_os = "windows", target_os = "macos")),
-            not(all(
-                feature = "nightly",
-                target_family = "wasm",
-                target_feature = "atomics",
-                any(target_arch = "wasm32", target_arch = "wasm64")
-            ))
+            not(any(target_os = "linux", target_os = "windows", target_os = "macos"))
         ))]
-        {}
+        {
+            let _ = this;
+        }
 
         #[cfg(all(not(miri), target_os = "linux"))]
         {
@@ -404,11 +325,11 @@ mod tests {
     use super::Futex;
     use core::ptr::NonNull;
     use core::sync::atomic::Ordering;
-    #[cfg(any(not(target_family = "wasm"), feature = "nightly"))]
+    #[cfg(not(target_family = "wasm"))]
     use core::sync::atomic::{AtomicBool, AtomicUsize};
-    #[cfg(any(not(target_family = "wasm"), feature = "nightly"))]
+    #[cfg(not(target_family = "wasm"))]
     use std::sync::Barrier;
-    #[cfg(any(not(target_family = "wasm"), feature = "nightly"))]
+    #[cfg(not(target_family = "wasm"))]
     use std::thread;
 
     #[test]
@@ -430,7 +351,7 @@ mod tests {
         assert_eq!(futex.load(Ordering::Acquire), 1);
     }
 
-    #[cfg(any(not(target_family = "wasm"), feature = "nightly"))]
+    #[cfg(not(target_family = "wasm"))]
     #[test]
     fn wake_one_with_same_value_does_not_release_a_waiter() {
         let futex = Futex::new(0);
@@ -461,7 +382,7 @@ mod tests {
         assert_eq!(futex.load(Ordering::Acquire), 1);
     }
 
-    #[cfg(any(not(target_family = "wasm"), feature = "nightly"))]
+    #[cfg(not(target_family = "wasm"))]
     #[test]
     fn wake_one_releases_a_waiter() {
         let futex = Futex::new(0);
@@ -491,7 +412,7 @@ mod tests {
         assert_eq!(futex.load(Ordering::Acquire), 1);
     }
 
-    #[cfg(any(not(target_family = "wasm"), feature = "nightly"))]
+    #[cfg(not(target_family = "wasm"))]
     #[test]
     fn wake_all_releases_all_waiters() {
         let futex = Futex::new(0);

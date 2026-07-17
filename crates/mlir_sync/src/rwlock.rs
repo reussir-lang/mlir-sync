@@ -343,24 +343,24 @@ crate::runtime_export! {
 mod tests {
     extern crate std;
 
-    #[cfg(any(not(target_family = "wasm"), feature = "nightly"))]
+    #[cfg(not(target_family = "wasm"))]
     use super::RwLock;
-    #[cfg(any(not(target_family = "wasm"), feature = "nightly"))]
+    #[cfg(not(target_family = "wasm"))]
     use core::cell::UnsafeCell;
-    #[cfg(any(not(target_family = "wasm"), feature = "nightly"))]
+    #[cfg(not(target_family = "wasm"))]
     use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-    #[cfg(any(not(target_family = "wasm"), feature = "nightly"))]
+    #[cfg(not(target_family = "wasm"))]
     use std::sync::Barrier;
-    #[cfg(any(not(target_family = "wasm"), feature = "nightly"))]
+    #[cfg(not(target_family = "wasm"))]
     use std::thread;
 
-    #[cfg(any(not(target_family = "wasm"), feature = "nightly"))]
+    #[cfg(not(target_family = "wasm"))]
     struct Shared<T> {
         lock: RwLock,
         value: UnsafeCell<T>,
     }
 
-    #[cfg(any(not(target_family = "wasm"), feature = "nightly"))]
+    #[cfg(not(target_family = "wasm"))]
     impl<T> Shared<T> {
         fn new(value: T) -> Self {
             Self {
@@ -384,10 +384,10 @@ mod tests {
         }
     }
 
-    #[cfg(any(not(target_family = "wasm"), feature = "nightly"))]
+    #[cfg(not(target_family = "wasm"))]
     unsafe impl<T: Send + Sync> Sync for Shared<T> {}
 
-    #[cfg(any(not(target_family = "wasm"), feature = "nightly"))]
+    #[cfg(not(target_family = "wasm"))]
     #[test]
     fn readers_can_share_access() {
         let shared = Shared::new(41usize);
@@ -424,7 +424,7 @@ mod tests {
         assert_eq!(active.load(Ordering::Acquire), 0);
     }
 
-    #[cfg(any(not(target_family = "wasm"), feature = "nightly"))]
+    #[cfg(not(target_family = "wasm"))]
     #[test]
     fn writer_excludes_other_writers_and_readers() {
         let shared = Shared::new(0usize);
@@ -444,7 +444,7 @@ mod tests {
         assert_eq!(shared.with_read(|value| *value), iterations * 2);
     }
 
-    #[cfg(any(not(target_family = "wasm"), feature = "nightly"))]
+    #[cfg(not(target_family = "wasm"))]
     #[test]
     fn waiting_writer_runs_after_readers_release() {
         let shared = Shared::new(0usize);

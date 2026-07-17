@@ -2,11 +2,6 @@ cmake_minimum_required(VERSION 3.28)
 project(Sync LANGUAGES C CXX VERSION 0.1.0)
 
 option(SYNC_ENABLE_TESTS "Build sync dialect integration tests" ON)
-option(MLIR_SYNC_ENABLE_NIGHTLY_FEATURE
-  "Build the Rust runtime with its nightly cargo feature (extra optimizations \
-such as prefetch intrinsics). The runtime ABI is unaffected: slow-path symbols \
-are always exported as extern \"C\" and the backend reaches them through \
-internal preserve_most trampolines it generates itself" OFF)
 
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
