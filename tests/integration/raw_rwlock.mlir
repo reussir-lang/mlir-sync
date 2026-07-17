@@ -54,11 +54,11 @@ module {
 // STD-DAG: func.func private @mlir_sync_rwlock_write_lock_slow_path(!ptr.ptr<#ptr.generic_space>) attributes {no_inline, passthrough = ["cold", "nounwind", "noinline"]}
 // STD-DAG: func.func private @mlir_sync_rwlock_unlock_slow_path(!ptr.ptr<#ptr.generic_space>, i32) attributes {no_inline, passthrough = ["cold", "nounwind", "noinline"]}
 // STD-DAG: func.func private @__sync_trampoline_mlir_sync_rwlock_read_lock_slow_path(%arg0: !ptr.ptr<#ptr.generic_space>) attributes {CConv = #llvm.cconv<preserve_mostcc>, llvm.linkage = #llvm.linkage<internal>, no_inline, passthrough = ["cold", "nounwind", "noinline"]}
-// STD-DAG: func.call @mlir_sync_rwlock_read_lock_slow_path(%arg0) : (!ptr.ptr<#ptr.generic_space>) -> ()
+// STD-DAG: call @mlir_sync_rwlock_read_lock_slow_path(%arg0) : (!ptr.ptr<#ptr.generic_space>) -> ()
 // STD-DAG: func.func private @__sync_trampoline_mlir_sync_rwlock_write_lock_slow_path(%arg0: !ptr.ptr<#ptr.generic_space>) attributes {CConv = #llvm.cconv<preserve_mostcc>, llvm.linkage = #llvm.linkage<internal>, no_inline, passthrough = ["cold", "nounwind", "noinline"]}
-// STD-DAG: func.call @mlir_sync_rwlock_write_lock_slow_path(%arg0) : (!ptr.ptr<#ptr.generic_space>) -> ()
+// STD-DAG: call @mlir_sync_rwlock_write_lock_slow_path(%arg0) : (!ptr.ptr<#ptr.generic_space>) -> ()
 // STD-DAG: func.func private @__sync_trampoline_mlir_sync_rwlock_unlock_slow_path(%arg0: !ptr.ptr<#ptr.generic_space>, %arg1: i32) attributes {CConv = #llvm.cconv<preserve_mostcc>, llvm.linkage = #llvm.linkage<internal>, no_inline, passthrough = ["cold", "nounwind", "noinline"]}
-// STD-DAG: func.call @mlir_sync_rwlock_unlock_slow_path(%arg0, %arg1) : (!ptr.ptr<#ptr.generic_space>, i32) -> ()
+// STD-DAG: call @mlir_sync_rwlock_unlock_slow_path(%arg0, %arg1) : (!ptr.ptr<#ptr.generic_space>, i32) -> ()
 // STD-LABEL: func.func @try_read_then_unlock() -> i1 {
 // STD: %[[TRYREAD:.+]]:2 = scf.while
 // STD: %[[STATE:.+]] = sync.raw_rwlock.load_state %{{.*}} : memref<!sync.raw_rwlock>

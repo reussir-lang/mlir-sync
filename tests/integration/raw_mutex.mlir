@@ -30,9 +30,9 @@ module {
 // STD-DAG: func.func private @mlir_sync_mutex_lock_slow_path(!ptr.ptr<#ptr.generic_space>) attributes {no_inline, passthrough = ["cold", "nounwind", "noinline"]}
 // STD-DAG: func.func private @mlir_sync_mutex_unlock_slow_path(!ptr.ptr<#ptr.generic_space>) attributes {no_inline, passthrough = ["cold", "nounwind", "noinline"]}
 // STD-DAG: func.func private @__sync_trampoline_mlir_sync_mutex_lock_slow_path(%arg0: !ptr.ptr<#ptr.generic_space>) attributes {CConv = #llvm.cconv<preserve_mostcc>, llvm.linkage = #llvm.linkage<internal>, no_inline, passthrough = ["cold", "nounwind", "noinline"]}
-// STD-DAG: func.call @mlir_sync_mutex_lock_slow_path(%arg0) : (!ptr.ptr<#ptr.generic_space>) -> ()
+// STD-DAG: call @mlir_sync_mutex_lock_slow_path(%arg0) : (!ptr.ptr<#ptr.generic_space>) -> ()
 // STD-DAG: func.func private @__sync_trampoline_mlir_sync_mutex_unlock_slow_path(%arg0: !ptr.ptr<#ptr.generic_space>) attributes {CConv = #llvm.cconv<preserve_mostcc>, llvm.linkage = #llvm.linkage<internal>, no_inline, passthrough = ["cold", "nounwind", "noinline"]}
-// STD-DAG: func.call @mlir_sync_mutex_unlock_slow_path(%arg0) : (!ptr.ptr<#ptr.generic_space>) -> ()
+// STD-DAG: call @mlir_sync_mutex_unlock_slow_path(%arg0) : (!ptr.ptr<#ptr.generic_space>) -> ()
 // STD: func.func @try_lock_once() -> i1
 // STD: %[[MUTEX:.+]] = memref.alloca() : memref<!sync.raw_mutex>
 // STD: sync.raw_mutex.init %[[MUTEX]]

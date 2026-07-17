@@ -42,9 +42,9 @@ module {
 // STD-DAG: func.func private @mlir_sync_call_once_slow_path_prologue(!ptr.ptr<#ptr.generic_space>) -> i1 attributes {no_inline, passthrough = ["cold", "nounwind", "noinline"]}
 // STD-DAG: func.func private @mlir_sync_call_once_slow_path_epilogue(!ptr.ptr<#ptr.generic_space>) attributes {no_inline, passthrough = ["cold", "nounwind", "noinline"]}
 // STD-DAG: func.func private @__sync_trampoline_mlir_sync_call_once_slow_path_prologue(%arg0: !ptr.ptr<#ptr.generic_space>) -> i1 attributes {CConv = #llvm.cconv<preserve_mostcc>, llvm.linkage = #llvm.linkage<internal>, no_inline, passthrough = ["cold", "nounwind", "noinline"]}
-// STD-DAG: func.call @mlir_sync_call_once_slow_path_prologue(%arg0) : (!ptr.ptr<#ptr.generic_space>) -> i1
+// STD-DAG: call @mlir_sync_call_once_slow_path_prologue(%arg0) : (!ptr.ptr<#ptr.generic_space>) -> i1
 // STD-DAG: func.func private @__sync_trampoline_mlir_sync_call_once_slow_path_epilogue(%arg0: !ptr.ptr<#ptr.generic_space>) attributes {CConv = #llvm.cconv<preserve_mostcc>, llvm.linkage = #llvm.linkage<internal>, no_inline, passthrough = ["cold", "nounwind", "noinline"]}
-// STD-DAG: func.call @mlir_sync_call_once_slow_path_epilogue(%arg0) : (!ptr.ptr<#ptr.generic_space>) -> ()
+// STD-DAG: call @mlir_sync_call_once_slow_path_epilogue(%arg0) : (!ptr.ptr<#ptr.generic_space>) -> ()
 // STD-LABEL: func.func @execute_marks_complete() -> i1 {
 // STD: %[[ONCE:.+]] = memref.alloca() : memref<!sync.once>
 // STD: sync.once.init %[[ONCE]] : memref<!sync.once>
