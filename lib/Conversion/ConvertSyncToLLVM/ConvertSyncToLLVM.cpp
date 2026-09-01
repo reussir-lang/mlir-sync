@@ -882,7 +882,11 @@ namespace {
 
 struct SyncConvertToLLVMPatternInterface
     : public mlir::ConvertToLLVMPatternInterface {
-  using ConvertToLLVMPatternInterface::ConvertToLLVMPatternInterface;
+  // The interface constructor is protected, and an inheriting
+  // using-declaration keeps that access — `addInterfaces` (make_unique
+  // outside the class) needs an explicit public constructor.
+  SyncConvertToLLVMPatternInterface(mlir::Dialect *dialect)
+      : ConvertToLLVMPatternInterface(dialect) {}
 
   void populateConvertToLLVMConversionPatterns(
       mlir::ConversionTarget &target, mlir::LLVMTypeConverter &typeConverter,
