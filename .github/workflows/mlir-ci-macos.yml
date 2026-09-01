@@ -43,9 +43,9 @@ jobs:
           LIBOMP_PREFIX="$(brew --prefix libomp)"
           LLVM_VERSION="$("${LLVM_PREFIX}/bin/llvm-config" --version)"
           case "${LLVM_VERSION}" in
-            22.*) ;;
+            23.*) ;;
             *)
-              echo "Expected LLVM 22.x, found ${LLVM_VERSION}" >&2
+              echo "Expected LLVM 23.x, found ${LLVM_VERSION}" >&2
               exit 1
               ;;
           esac
