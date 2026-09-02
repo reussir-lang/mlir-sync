@@ -18,6 +18,12 @@ namespace mlir::sync {
 /// and is folded into the converted `llvm.func` by the sync patterns.
 inline constexpr ::llvm::StringLiteral kSyncCConvAttr = "sync.cconv";
 
+/// Same contract for LLVM function attributes: the requested `passthrough`
+/// strings ride this marker and are folded into the converted `llvm.func`'s
+/// inherent attribute.
+inline constexpr ::llvm::StringLiteral kSyncPassthroughAttr =
+    "sync.passthrough";
+
 #define GEN_PASS_DECL_CONVERTSYNCTOLLVMPASS
 #include "Sync/Conversion/Passes.h.inc"
 

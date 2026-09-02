@@ -27,11 +27,11 @@ module {
 // ROUNDTRIP: sync.raw_mutex.lock
 // ROUNDTRIP: sync.raw_mutex.unlock
 
-// STD-DAG: func.func private @mlir_sync_mutex_lock_slow_path(!ptr.ptr<#ptr.generic_space>) attributes {llvm.passthrough = ["cold", "nounwind", "noinline"], no_inline}
-// STD-DAG: func.func private @mlir_sync_mutex_unlock_slow_path(!ptr.ptr<#ptr.generic_space>) attributes {llvm.passthrough = ["cold", "nounwind", "noinline"], no_inline}
-// STD-DAG: func.func private @__sync_trampoline_mlir_sync_mutex_lock_slow_path(%arg0: !ptr.ptr<#ptr.generic_space>) attributes {llvm.linkage = #llvm.linkage<internal>, llvm.passthrough = ["cold", "nounwind", "noinline"], no_inline, sync.cconv = #llvm.cconv<preserve_mostcc>}
+// STD-DAG: func.func private @mlir_sync_mutex_lock_slow_path(!ptr.ptr<#ptr.generic_space>) attributes {no_inline, sync.passthrough = ["cold", "nounwind", "noinline"]}
+// STD-DAG: func.func private @mlir_sync_mutex_unlock_slow_path(!ptr.ptr<#ptr.generic_space>) attributes {no_inline, sync.passthrough = ["cold", "nounwind", "noinline"]}
+// STD-DAG: func.func private @__sync_trampoline_mlir_sync_mutex_lock_slow_path(%arg0: !ptr.ptr<#ptr.generic_space>) attributes {llvm.linkage = #llvm.linkage<internal>, no_inline, sync.cconv = #llvm.cconv<preserve_mostcc>, sync.passthrough = ["cold", "nounwind", "noinline"]}
 // STD-DAG: call @mlir_sync_mutex_lock_slow_path(%arg0) : (!ptr.ptr<#ptr.generic_space>) -> ()
-// STD-DAG: func.func private @__sync_trampoline_mlir_sync_mutex_unlock_slow_path(%arg0: !ptr.ptr<#ptr.generic_space>) attributes {llvm.linkage = #llvm.linkage<internal>, llvm.passthrough = ["cold", "nounwind", "noinline"], no_inline, sync.cconv = #llvm.cconv<preserve_mostcc>}
+// STD-DAG: func.func private @__sync_trampoline_mlir_sync_mutex_unlock_slow_path(%arg0: !ptr.ptr<#ptr.generic_space>) attributes {llvm.linkage = #llvm.linkage<internal>, no_inline, sync.cconv = #llvm.cconv<preserve_mostcc>, sync.passthrough = ["cold", "nounwind", "noinline"]}
 // STD-DAG: call @mlir_sync_mutex_unlock_slow_path(%arg0) : (!ptr.ptr<#ptr.generic_space>) -> ()
 // STD: func.func @try_lock_once() -> i1
 // STD: %[[MUTEX:.+]] = memref.alloca() : memref<!sync.raw_mutex>

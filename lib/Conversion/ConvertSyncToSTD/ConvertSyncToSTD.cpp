@@ -70,7 +70,7 @@ void setPreserveMostCallingConvention(mlir::Operation *op) {
 void setColdRuntimeAttributes(mlir::func::FuncOp func,
                               mlir::PatternRewriter &rewriter) {
   func.setNoInline(true);
-  func->setAttr("llvm.passthrough",
+  func->setAttr(mlir::sync::kSyncPassthroughAttr,
                 rewriter.getArrayAttr({rewriter.getStringAttr("cold"),
                                        rewriter.getStringAttr("nounwind"),
                                        rewriter.getStringAttr("noinline")}));
@@ -232,7 +232,7 @@ mlir::func::FuncOp createCombiningLockWrapper(
   wrapper->setAttr("llvm.linkage", mlir::LLVM::LinkageAttr::get(
                                        op.getContext(),
                                        mlir::LLVM::linkage::Linkage::Internal));
-  wrapper->setAttr("llvm.passthrough",
+  wrapper->setAttr(mlir::sync::kSyncPassthroughAttr,
                    rewriter.getArrayAttr({rewriter.getStringAttr("cold")}));
 
   auto *entryBlock = wrapper.addEntryBlock();
