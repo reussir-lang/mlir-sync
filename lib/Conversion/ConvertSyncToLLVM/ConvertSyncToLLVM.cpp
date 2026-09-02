@@ -853,11 +853,50 @@ struct CombiningLockRecoverLowering
   }
 };
 
+/// Folds the `sync.cconv` and `sync.passthrough` markers into the inherent
+/// attributes of a converted `llvm.func`: the func-to-llvm conversion pins
+/// every function it converts to the C convention and does not carry
+/// `passthrough` across, so the markers transport both — keeping callers
+/// (which forward CConv onto `llvm.call`) ABI-consistent with the
+/// definition, and the cold-attribute set intact.
+struct SyncFuncMarkerLowering
+    : public mlir::OpRewritePattern<mlir::LLVM::LLVMFuncOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  mlir::LogicalResult
+  matchAndRewrite(mlir::LLVM::LLVMFuncOp op,
+                  mlir::PatternRewriter &rewriter) const override {
+    auto cconv = op->getAttrOfType<mlir::LLVM::CConvAttr>(kSyncCConvAttr);
+    auto passthrough =
+        op->getAttrOfType<mlir::ArrayAttr>(kSyncPassthroughAttr);
+    if (!cconv && !passthrough)
+      return mlir::failure();
+    rewriter.modifyOpInPlace(op, [&] {
+      if (cconv) {
+        op.setCConv(cconv.getCallingConv());
+        op->removeAttr(kSyncCConvAttr);
+      }
+      if (passthrough) {
+        op.setPassthroughAttr(passthrough);
+        op->removeAttr(kSyncPassthroughAttr);
+      }
+    });
+    return mlir::success();
+  }
+};
+
 } // namespace
 
 void configureConvertSyncToLLVMConversionLegality(
     mlir::ConversionTarget &target) {
   target.addIllegalDialect<SyncDialect>();
+  // A converted function still carrying a marker is not yet legal; the
+  // marker pattern folds them in.
+  target.addDynamicallyLegalOp<mlir::LLVM::LLVMFuncOp>(
+      [](mlir::LLVM::LLVMFuncOp op) {
+        return !op->hasAttr(kSyncCConvAttr) &&
+               !op->hasAttr(kSyncPassthroughAttr);
+      });
 }
 
 void populateConvertSyncToLLVMConversionPatterns(
@@ -876,13 +915,18 @@ void populateConvertSyncToLLVMConversionPatterns(
                CombiningLockCaptureEndLowering,
                CombiningLockRecoverLowering>(
       converter, patterns.getContext());
+  patterns.add<SyncFuncMarkerLowering>(patterns.getContext());
 }
 
 namespace {
 
 struct SyncConvertToLLVMPatternInterface
     : public mlir::ConvertToLLVMPatternInterface {
-  using ConvertToLLVMPatternInterface::ConvertToLLVMPatternInterface;
+  // The interface constructor is protected, and an inheriting
+  // using-declaration keeps that access — `addInterfaces` (make_unique
+  // outside the class) needs an explicit public constructor.
+  SyncConvertToLLVMPatternInterface(mlir::Dialect *dialect)
+      : ConvertToLLVMPatternInterface(dialect) {}
 
   void populateConvertToLLVMConversionPatterns(
       mlir::ConversionTarget &target, mlir::LLVMTypeConverter &typeConverter,

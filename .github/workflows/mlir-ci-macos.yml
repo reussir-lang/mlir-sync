@@ -43,9 +43,9 @@ jobs:
           LIBOMP_PREFIX="$(brew --prefix libomp)"
           LLVM_VERSION="$("${LLVM_PREFIX}/bin/llvm-config" --version)"
           case "${LLVM_VERSION}" in
-            22.*) ;;
+            23.*) ;;
             *)
-              echo "Expected LLVM 22.x, found ${LLVM_VERSION}" >&2
+              echo "Expected LLVM 23.x, found ${LLVM_VERSION}" >&2
               exit 1
               ;;
           esac
@@ -56,7 +56,7 @@ jobs:
           echo "MLIR_DIR=${LLVM_PREFIX}/lib/cmake/mlir" >> "${GITHUB_ENV}"
           echo "CPATH=${LIBOMP_PREFIX}/include:${CPATH}" >> "${GITHUB_ENV}"
           echo "LIBRARY_PATH=${LIBOMP_PREFIX}/lib:${LIBRARY_PATH}" >> "${GITHUB_ENV}"
-          echo "DYLD_LIBRARY_PATH=${LLVM_PREFIX}/lib:${LIBOMP_PREFIX}/lib:${DYLD_LIBRARY_PATH}" >> "${GITHUB_ENV}"
+          echo "DYLD_LIBRARY_PATH=${LIBOMP_PREFIX}/lib:${DYLD_LIBRARY_PATH}" >> "${GITHUB_ENV}"
           echo "LLVM_SYMBOLIZER_PATH=${LLVM_PREFIX}/bin/llvm-symbolizer" >> "${GITHUB_ENV}"
 
       - name: Configure CMake
