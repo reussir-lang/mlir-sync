@@ -853,11 +853,38 @@ struct CombiningLockRecoverLowering
   }
 };
 
+/// Folds the `sync.cconv` marker into the calling convention of a converted
+/// `llvm.func`: the func-to-llvm conversion pins every function it converts
+/// to the C convention, so the marker carries the requested convention
+/// across, and its callers (which forward CConv onto `llvm.call`) stay
+/// ABI-consistent with the definition.
+struct SyncCConvMarkerLowering
+    : public mlir::OpRewritePattern<mlir::LLVM::LLVMFuncOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  mlir::LogicalResult
+  matchAndRewrite(mlir::LLVM::LLVMFuncOp op,
+                  mlir::PatternRewriter &rewriter) const override {
+    auto cconv = op->getAttrOfType<mlir::LLVM::CConvAttr>(kSyncCConvAttr);
+    if (!cconv)
+      return mlir::failure();
+    rewriter.modifyOpInPlace(op, [&] {
+      op.setCConv(cconv.getCallingConv());
+      op->removeAttr(kSyncCConvAttr);
+    });
+    return mlir::success();
+  }
+};
+
 } // namespace
 
 void configureConvertSyncToLLVMConversionLegality(
     mlir::ConversionTarget &target) {
   target.addIllegalDialect<SyncDialect>();
+  // A converted function still carrying the calling-convention marker is not
+  // yet legal; the marker pattern folds it in.
+  target.addDynamicallyLegalOp<mlir::LLVM::LLVMFuncOp>(
+      [](mlir::LLVM::LLVMFuncOp op) { return !op->hasAttr(kSyncCConvAttr); });
 }
 
 void populateConvertSyncToLLVMConversionPatterns(
@@ -876,6 +903,7 @@ void populateConvertSyncToLLVMConversionPatterns(
                CombiningLockCaptureEndLowering,
                CombiningLockRecoverLowering>(
       converter, patterns.getContext());
+  patterns.add<SyncCConvMarkerLowering>(patterns.getContext());
 }
 
 namespace {

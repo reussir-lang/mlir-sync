@@ -1,5 +1,7 @@
 #include "Sync/Conversion/ConvertSyncToSTD.h"
 
+#include "Sync/Conversion/ConvertSyncToLLVM.h"
+
 #include <mlir/Dialect/Arith/IR/Arith.h>
 #include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/Dialect/LLVMIR/LLVMDialect.h>
@@ -53,15 +55,22 @@ constexpr uint32_t kRwLockWritersWaiting = 1u << 31;
 // llvm.call ops.
 void setPreserveMostCallingConvention(mlir::Operation *op) {
   op->getContext()->getOrLoadDialect<mlir::LLVM::LLVMDialect>();
-  op->setAttr("CConv",
-              mlir::LLVM::CConvAttr::get(op->getContext(),
-                                         mlir::LLVM::CConv::PreserveMost));
+  auto cconv = mlir::LLVM::CConvAttr::get(op->getContext(),
+                                          mlir::LLVM::CConv::PreserveMost);
+  // Calls forward their CConv attribute onto `llvm.call` verbatim; a
+  // function cannot (the func-to-llvm conversion pins converted functions
+  // to the C convention), so it carries the request through the
+  // `sync.cconv` marker the sync convert-to-llvm patterns fold in.
+  if (mlir::isa<mlir::func::FuncOp>(op))
+    op->setAttr(mlir::sync::kSyncCConvAttr, cconv);
+  else
+    op->setAttr("CConv", cconv);
 }
 
 void setColdRuntimeAttributes(mlir::func::FuncOp func,
                               mlir::PatternRewriter &rewriter) {
   func.setNoInline(true);
-  func->setAttr("passthrough",
+  func->setAttr("llvm.passthrough",
                 rewriter.getArrayAttr({rewriter.getStringAttr("cold"),
                                        rewriter.getStringAttr("nounwind"),
                                        rewriter.getStringAttr("noinline")}));
@@ -223,7 +232,7 @@ mlir::func::FuncOp createCombiningLockWrapper(
   wrapper->setAttr("llvm.linkage", mlir::LLVM::LinkageAttr::get(
                                        op.getContext(),
                                        mlir::LLVM::linkage::Linkage::Internal));
-  wrapper->setAttr("passthrough",
+  wrapper->setAttr("llvm.passthrough",
                    rewriter.getArrayAttr({rewriter.getStringAttr("cold")}));
 
   auto *entryBlock = wrapper.addEntryBlock();

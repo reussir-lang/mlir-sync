@@ -12,6 +12,12 @@
 
 namespace mlir::sync {
 
+/// Calling-convention marker for functions the sync lowering creates: the
+/// func-to-llvm conversion pins every function it converts to the C calling
+/// convention, so the requested convention rides this discardable attribute
+/// and is folded into the converted `llvm.func` by the sync patterns.
+inline constexpr ::llvm::StringLiteral kSyncCConvAttr = "sync.cconv";
+
 #define GEN_PASS_DECL_CONVERTSYNCTOLLVMPASS
 #include "Sync/Conversion/Passes.h.inc"
 

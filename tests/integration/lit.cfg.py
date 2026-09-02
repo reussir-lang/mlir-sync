@@ -1,8 +1,14 @@
 import lit.formats
 import os
+import platform
 
 config.name = "Sync"
-config.test_format = lit.formats.ShTest()
+# lit's internal shell mishandles Windows extended-length temp paths; keep the
+# external (msys) shell there and the internal shell everywhere else.
+if platform.system() == "Windows":
+    config.test_format = lit.formats.ShTest(force_execute_external=True)
+else:
+    config.test_format = lit.formats.ShTest()
 
 config.suffixes = [".mlir"]
 
