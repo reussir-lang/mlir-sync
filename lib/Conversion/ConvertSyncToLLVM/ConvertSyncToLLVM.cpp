@@ -183,6 +183,8 @@ struct RawMutexInitLowering
         *static_cast<const mlir::LLVMTypeConverter *>(getTypeConverter());
     auto ptr = getRawMutexPointer(op, adaptor, converter, rewriter);
     auto zero = createI32Constant(op.getLoc(), kUnlockedState, rewriter);
+    // A plain store: initialization precedes sharing the mutex, and whatever
+    // publishes it to other threads orders this store before their accesses.
     mlir::LLVM::StoreOp::create(rewriter, op.getLoc(), zero, ptr);
     rewriter.eraseOp(op);
     return mlir::success();
@@ -256,6 +258,8 @@ struct RawRwLockInitLowering
     auto writerNotifyPtr =
         getRawRwLockWriterNotifyPointer(loc, ptr, rawRwLockType, rewriter);
     auto zero = createI32Constant(loc, kUnlockedState, rewriter);
+    // Plain stores: initialization precedes sharing the rwlock, and whatever
+    // publishes it to other threads orders these stores before their accesses.
     mlir::LLVM::StoreOp::create(rewriter, loc, zero, statePtr);
     mlir::LLVM::StoreOp::create(rewriter, loc, zero, writerNotifyPtr);
     rewriter.eraseOp(op);
@@ -273,6 +277,8 @@ struct OnceInitLowering : public mlir::OpConversionPattern<SyncOnceInitOp> {
         *static_cast<const mlir::LLVMTypeConverter *>(getTypeConverter());
     auto ptr = getOncePointer(op, adaptor, converter, rewriter);
     auto zero = createI32Constant(op.getLoc(), kOnceIncomplete, rewriter);
+    // A plain store: initialization precedes sharing the once, and whatever
+    // publishes it to other threads orders this store before their accesses.
     mlir::LLVM::StoreOp::create(rewriter, op.getLoc(), zero, ptr);
     rewriter.eraseOp(op);
     return mlir::success();
@@ -289,8 +295,15 @@ struct OnceCompletedLowering
     auto &converter =
         *static_cast<const mlir::LLVMTypeConverter *>(getTypeConverter());
     auto ptr = getOncePointer(op, adaptor, converter, rewriter);
-    auto state = mlir::LLVM::LoadOp::create(rewriter, op.getLoc(),
-                                            rewriter.getI32Type(), ptr);
+    // Other threads move the state word with atomic cmpxchg/xchg, so the load
+    // must be atomic. Acquire: observing completion lets the caller skip the
+    // slow path and read whatever the once body initialized, so it has to
+    // synchronize with the completing thread's release swap.
+    auto state = mlir::LLVM::LoadOp::create(
+        rewriter, op.getLoc(), rewriter.getI32Type(), ptr,
+        /*alignment=*/4, /*isVolatile=*/false, /*isNonTemporal=*/false,
+        /*isInvariant=*/false, /*isInvariantGroup=*/false,
+        mlir::LLVM::AtomicOrdering::acquire);
     auto complete = createI32Constant(op.getLoc(), kOnceComplete, rewriter);
     auto isComplete = mlir::LLVM::ICmpOp::create(
         rewriter, op.getLoc(), mlir::LLVM::ICmpPredicate::eq,
@@ -316,8 +329,16 @@ struct RawRwLockLoadStateLowering
       return rewriter.notifyMatchFailure(op, "failed to convert raw rwlock type");
     auto ptr = getRawRwLockPointer(op, adaptor, converter, rewriter);
     auto statePtr = getRawRwLockStatePointer(loc, ptr, rawRwLockType, rewriter);
-    auto current = mlir::LLVM::LoadOp::create(rewriter, loc, rewriter.getI32Type(),
-                                              statePtr);
+    // Other threads move the state word with atomic cmpxchg/atomicrmw, so the
+    // load must be atomic. Monotonic suffices: the value only picks the
+    // operands of the acquire cmpxchg_state that actually takes the lock, or
+    // sends the caller to the slow path; no protected data is read on its
+    // basis alone.
+    auto current = mlir::LLVM::LoadOp::create(
+        rewriter, loc, rewriter.getI32Type(), statePtr,
+        /*alignment=*/4, /*isVolatile=*/false, /*isNonTemporal=*/false,
+        /*isInvariant=*/false, /*isInvariantGroup=*/false,
+        mlir::LLVM::AtomicOrdering::monotonic);
     rewriter.replaceOp(op, current.getResult());
     return mlir::success();
   }
@@ -541,6 +562,8 @@ struct CombiningLockInitLowering
                                                 {0, 0, 0}, rewriter);
     auto statusPtr = getCombiningLockFieldPointer(op.getLoc(), lockPtr, lockElementType,
                                                   {0, 0, 1}, rewriter);
+    // Plain stores: initialization precedes sharing the lock, and whatever
+    // publishes it to other threads orders these stores before their accesses.
     mlir::LLVM::StoreOp::create(rewriter, op.getLoc(), nullPtr.getResult(), tailPtr);
     mlir::LLVM::StoreOp::create(rewriter, op.getLoc(), zeroI8, statusPtr);
 
@@ -752,6 +775,9 @@ struct CombiningLockCaptureLowering
     auto payloadPtr = mlir::LLVM::getStridedElementPtr(
         rewriter, op.getLoc(), converter, payloadType, adaptor.getPayload(), {});
 
+    // Plain stores: the node is still private to this thread. The runtime
+    // publishes it with the AcqRel tail swap and the Release next-link store,
+    // which order these stores before the combiner's reads of the node.
     mlir::LLVM::StoreOp::create(rewriter, op.getLoc(), waiting, futexPtr);
     mlir::LLVM::StoreOp::create(rewriter, op.getLoc(), nullPtr.getResult(), nextPtr);
     mlir::LLVM::StoreOp::create(rewriter, op.getLoc(), adaptor.getCallee(),
