@@ -84,14 +84,14 @@ module {
 // LOWER-DAG: llvm.call @mlir_sync_call_once_slow_path_epilogue(%arg0) : (!llvm.ptr) -> ()
 // LOWER-LABEL: llvm.func @execute_marks_complete() -> i1 {
 // LOWER: llvm.store
-// LOWER: llvm.load
+// LOWER: llvm.load %{{.+}} atomic acquire {alignment = 4 : i64} : !llvm.ptr -> i32
 // LOWER: llvm.icmp
 // LOWER: llvm.call preserve_mostcc @__sync_trampoline_mlir_sync_call_once_slow_path_prologue
 // LOWER: llvm.call preserve_mostcc @__sync_trampoline_mlir_sync_call_once_slow_path_epilogue
 // LOWER: llvm.return
 // LOWER-LABEL: llvm.func @once_execute_wrapper(
 // LOWER: llvm.store
-// LOWER: llvm.load
+// LOWER: llvm.load %{{.+}} atomic acquire {alignment = 4 : i64} : !llvm.ptr -> i32
 // LOWER: llvm.icmp
 // LOWER: llvm.call preserve_mostcc @__sync_trampoline_mlir_sync_call_once_slow_path_prologue
 // LOWER: llvm.call preserve_mostcc @__sync_trampoline_mlir_sync_call_once_slow_path_epilogue

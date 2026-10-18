@@ -136,23 +136,26 @@ module {
 // LOWER-DAG: llvm.func internal preserve_mostcc @__sync_trampoline_mlir_sync_rwlock_unlock_slow_path(%arg0: !llvm.ptr, %arg1: i32) attributes {passthrough = ["cold", "nounwind", "noinline"], sym_visibility = "private"}
 // LOWER-DAG: llvm.call @mlir_sync_rwlock_unlock_slow_path(%arg0, %arg1) : (!llvm.ptr, i32) -> ()
 // LOWER-LABEL: llvm.func @try_read_then_unlock() -> i1 {
-// LOWER: llvm.load
+// LOWER: llvm.load %{{.+}} atomic monotonic {alignment = 4 : i64} : !llvm.ptr -> i32
 // LOWER: llvm.cmpxchg
 // LOWER: llvm.atomicrmw sub
 // LOWER: llvm.call preserve_mostcc @__sync_trampoline_mlir_sync_rwlock_unlock_slow_path
 // LOWER: llvm.return
 // LOWER-LABEL: llvm.func @read_lock_unlock_once() {
+// LOWER: llvm.load %{{.+}} atomic monotonic {alignment = 4 : i64} : !llvm.ptr -> i32
 // LOWER: llvm.cmpxchg
 // LOWER: llvm.call preserve_mostcc @__sync_trampoline_mlir_sync_rwlock_read_lock_slow_path
 // LOWER: llvm.atomicrmw sub
 // LOWER: llvm.call preserve_mostcc @__sync_trampoline_mlir_sync_rwlock_unlock_slow_path
 // LOWER: llvm.return
 // LOWER-LABEL: llvm.func @try_write_then_unlock() -> i1 {
+// LOWER: llvm.load %{{.+}} atomic monotonic {alignment = 4 : i64} : !llvm.ptr -> i32
 // LOWER: llvm.cmpxchg
 // LOWER: llvm.atomicrmw sub
 // LOWER: llvm.call preserve_mostcc @__sync_trampoline_mlir_sync_rwlock_unlock_slow_path
 // LOWER: llvm.return
 // LOWER-LABEL: llvm.func @write_lock_unlock_once() {
+// LOWER: llvm.load %{{.+}} atomic monotonic {alignment = 4 : i64} : !llvm.ptr -> i32
 // LOWER: llvm.cmpxchg
 // LOWER: llvm.call preserve_mostcc @__sync_trampoline_mlir_sync_rwlock_write_lock_slow_path
 // LOWER: llvm.atomicrmw sub
